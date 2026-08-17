@@ -1,0 +1,84 @@
+# ---------------------------------------------------------------------------
+# Secrets — xem CONTEXT.md §5. KHÔNG BAO GIỜ commit các file này.
+# ---------------------------------------------------------------------------
+local.properties
+secrets.properties
+keystore.properties
+*.jks
+*.keystore
+!debug.keystore
+.env
+.env.*
+!.env.example
+*.tailscale-authkey
+rclone.conf
+
+# ---------------------------------------------------------------------------
+# Gradle
+# ---------------------------------------------------------------------------
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!src/**/build/
+captures/
+.kotlin/
+
+# ---------------------------------------------------------------------------
+# Android
+# ---------------------------------------------------------------------------
+*.apk
+*.aab
+*.ap_
+*.aar
+*.dex
+*.class
+output.json
+release/
+.cxx/
+lint/intermediates/
+lint/generated/
+lint/outputs/
+lint/tmp/
+lint/reports/
+
+# ---------------------------------------------------------------------------
+# IntelliJ IDEA / Android Studio
+# Track: code style + inspection profiles dùng chung. Bỏ: state cá nhân.
+# ---------------------------------------------------------------------------
+.idea/*
+!.idea/codeStyles/
+!.idea/inspectionProfiles/
+!.idea/icon.png
+.idea/codeStyles/codeStyleConfig.xml
+*.iml
+*.iws
+*.ipr
+out/
+
+# ---------------------------------------------------------------------------
+# Desktop agent (jpackage / JVM)
+# ---------------------------------------------------------------------------
+/desktop-agent/build/
+/desktop-agent/dist/
+*.jar
+!gradle/wrapper/*.jar
+hs_err_pid*.log
+replay_pid*.log
+
+# ---------------------------------------------------------------------------
+# Hệ điều hành
+# ---------------------------------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+.DS_Store
+
+# ---------------------------------------------------------------------------
+# Khác
+# ---------------------------------------------------------------------------
+*.log
+*.tmp
+*.bak
+.claude/settings.local.json

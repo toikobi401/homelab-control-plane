@@ -1,0 +1,32 @@
+# Chuẩn hoá line ending: LF trong repo, tự động chuyển khi checkout trên Windows.
+* text=auto eol=lf
+
+# Script phải giữ LF — gradlew hỏng nếu bị CRLF.
+gradlew        text eol=lf
+*.sh           text eol=lf
+
+# Script Windows phải giữ CRLF.
+gradlew.bat    text eol=crlf
+*.bat          text eol=crlf
+*.cmd          text eol=crlf
+
+# Binary — không diff, không đổi line ending.
+*.jar          binary
+*.apk          binary
+*.aab          binary
+*.jks          binary
+*.keystore     binary
+*.png          binary
+*.jpg          binary
+*.jpeg         binary
+*.gif          binary
+*.webp         binary
+*.ico          binary
+*.ttf          binary
+*.otf          binary
+*.woff         binary
+*.woff2        binary
+*.zip          binary
+
+# Gradle wrapper jar không cần hiện trong diff review.
+gradle/wrapper/gradle-wrapper.jar binary linguist-generated
