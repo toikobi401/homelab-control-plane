@@ -1,0 +1,52 @@
+# Chạy Hub bằng Docker. Đích đến là NAS, nhưng chạy được ngay trên PC.
+#
+#     docker compose up --build
+#
+# Cần một file .env cạnh file này (chép từ .env.example) khai HUB_TAILNET_IP.
+
+services:
+  api:
+    build:
+      # Context là thư mục gốc repo — Dockerfile cần global.json và
+      # Directory.Build.props ở đó.
+      context: .
+      dockerfile: backend/Hub.Api/Dockerfile
+    image: hub-api:latest
+    restart: unless-stopped
+
+    # ─────────────────────────────────────────────────────────────────
+    # CONTEXT.md §4 — RANH GIỚI BẢO MẬT NẰM Ở ĐÂY.
+    #
+    # Cổng CHỈ được publish lên địa chỉ tailnet. Viết "5000:8080" (thiếu
+    # phần IP) là mở backend ra toàn bộ Wi-Fi nhà, gồm cả máy của khách —
+    # đúng thứ §4 cấm. Biến bắt buộc có, thiếu thì compose báo lỗi ngay.
+    # ─────────────────────────────────────────────────────────────────
+    ports:
+      - "${HUB_TAILNET_IP:?Thiếu HUB_TAILNET_IP — chép .env.example thành .env. Xem CONTEXT.md §4}:5000:8080"
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      HUB_BIND_MODE: Container
+      HUB_DATA_DIR: /data
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+
+    volumes:
+      # File SQLite nằm trong volume, không nằm trong ảnh. Chuyển sang NAS
+      # chỉ là đổi dòng này sang share của NAS, ví dụ:
+      #   - /volume1/docker/hub:/data
+      - hub-data:/data
+
+    healthcheck:
+      # Ảnh aspnet không có curl — dùng chính .NET để gọi, khỏi cài thêm gói.
+      test: ["CMD", "dotnet", "Hub.Api.dll", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    # Siết quyền: container không cần thêm quyền gì để phục vụ HTTP.
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  hub-data:

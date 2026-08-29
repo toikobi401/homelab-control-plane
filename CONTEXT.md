@@ -232,6 +232,35 @@ thống có quyền chạy lệnh từ xa (§5a), đó là lỗi nghiêm trọng
 Khởi động phải **thất bại rõ ràng** nếu không tìm thấy địa chỉ tailnet, thay vì âm thầm tụt về
 `0.0.0.0`.
 
+#### Ngoại lệ khi chạy trong container
+
+Trong container, quy tắc trên **đổi chỗ thực thi**, không đổi bản chất. Container có network
+namespace riêng, nên `0.0.0.0` bên trong nghĩa là "mọi địa chỉ của container", không phải mọi card
+mạng của máy thật. Vì vậy:
+
+- Tiến trình trong container bind `0.0.0.0:8080` — đây là cách duy nhất Docker định tuyến vào được.
+- **Ranh giới bảo vệ chuyển ra cổng publish**, và nó bắt buộc gắn địa chỉ tailnet:
+
+  ```yaml
+  ports:
+    - "${HUB_TAILNET_IP}:5000:8080"   # ĐÚNG
+    - "5000:8080"                      # SAI — phơi ra toàn bộ Wi-Fi nhà
+  ```
+
+- `compose.yaml` khai `HUB_TAILNET_IP` là biến **bắt buộc**: thiếu thì compose từ chối chạy, không
+  âm thầm publish ra mọi địa chỉ.
+
+Chế độ bind là tường minh qua `HUB_BIND_MODE` (`Localhost` / `Tailnet` / `Container`) — xem
+`Hub.Api/Hosting/NetworkBinding.cs`. Không có chế độ nào tự ý rơi về `0.0.0.0` ngoài container.
+
+**Cách kiểm chứng** (làm lại mỗi khi đụng vào phần mạng) — từ một máy trong Wi-Fi nhà nhưng
+không cài Tailscale:
+
+```
+curl http://<IP-LAN-của-máy-chạy-hub>:5000/health   # phải KHÔNG kết nối được
+curl http://<IP-tailnet>:5000/health                # phải trả 200
+```
+
 ---
 ## 5. Năng lực 5 — Đọc truyện tranh (đứng riêng)
 
@@ -800,6 +829,7 @@ lý do.
 | 2026-08-29 | Truy cập qua **MagicDNS + `tailscale cert`**, không tự dựng DNS/CA | Chứng chỉ Let's Encrypt hợp lệ, không cảnh báo trình duyệt, iPhone không phải cài profile thủ công |
 | 2026-08-29 | Backend làm **proxy ảnh** cho năng lực 5 | Trình duyệt không chọn được HTTP/3 và bị CORS chặn. Đồng thời **xoá bỏ câu hỏi chặn đường về Cronet** — `HttpClient` của .NET nói HTTP/3 sẵn |
 | 2026-08-29 | Backend thiết kế để chuyển sang NAS: lõi không phụ thuộc Windows | Đích đến là NAS chạy 24/7. Mã riêng cho Windows nằm ở agent, sau interface |
+| 2026-08-29 | Trong container: bind `0.0.0.0`, chặn bằng cổng publish gắn IP tailnet | Container có netns riêng nên `0.0.0.0` không phơi ra mạng nhà. Cách chuẩn của Docker, chạy được trên mọi NAS. Đã kiểm chứng: từ LAN không vào được, qua tailnet trả 200 |
 
 ---
 

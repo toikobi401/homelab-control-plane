@@ -1,0 +1,48 @@
+# Không để tàn dư build của Windows lọt vào ảnh Linux — vừa làm ảnh phình,
+# vừa có thể ghi đè kết quả restore trong container.
+**/bin/
+**/obj/
+artifacts/
+publish/
+
+# Không bao giờ đưa secret vào ảnh (CONTEXT.md §6.5)
+.env
+.env.*
+!.env.example
+**/appsettings.Local.json
+**/appsettings.*.Local.json
+secrets.json
+*.pfx
+*.key
+*.pem
+rclone.conf
+*.tailscale-authkey
+
+# Dữ liệu — chứa hash mật khẩu, phiên đăng nhập
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Frontend
+node_modules/
+dist/
+.vite/
+
+# IDE / VCS / tài liệu — không ảnh hưởng tới build
+.git/
+.gitignore
+.gitattributes
+.vs/
+.idea/
+.vscode/
+.playwright-mcp/
+docs/
+*.md
+
+# File riêng của Docker
+compose*.yaml
+compose*.yml
+Dockerfile*
+.dockerignore
