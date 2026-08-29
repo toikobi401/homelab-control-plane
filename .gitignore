@@ -1,69 +1,72 @@
 # ---------------------------------------------------------------------------
-# Secrets — xem CONTEXT.md §5. KHÔNG BAO GIỜ commit các file này.
+# Secrets — xem CONTEXT.md §6.5. KHÔNG BAO GIỜ commit các file này.
 # ---------------------------------------------------------------------------
-local.properties
-secrets.properties
-keystore.properties
-*.jks
-*.keystore
-!debug.keystore
 .env
 .env.*
 !.env.example
+appsettings.Local.json
+appsettings.*.Local.json
+secrets.json
 *.tailscale-authkey
 rclone.conf
+*.pfx
+*.key
+*.pem
+!*.example.pem
+
+# Cơ sở dữ liệu — chứa hash mật khẩu, phiên đăng nhập, thông tin xác thực đã mã hoá
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
 
 # ---------------------------------------------------------------------------
-# Gradle
+# .NET
 # ---------------------------------------------------------------------------
-.gradle/
-build/
-!gradle/wrapper/gradle-wrapper.jar
-!src/**/build/
-captures/
-.kotlin/
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.user
+*.suo
+*.userprefs
+.vs/
+artifacts/
+publish/
+*.nupkg
+TestResults/
+coverage*.json
+coverage*.xml
+*.coverage
 
 # ---------------------------------------------------------------------------
-# Android
+# Node / frontend
 # ---------------------------------------------------------------------------
-*.apk
-*.aab
-*.ap_
-*.aar
-*.dex
-*.class
-output.json
-release/
-.cxx/
-lint/intermediates/
-lint/generated/
-lint/outputs/
-lint/tmp/
-lint/reports/
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+.eslintcache
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # ---------------------------------------------------------------------------
-# IntelliJ IDEA / Android Studio
+# IDE
 # Track: code style + inspection profiles dùng chung. Bỏ: state cá nhân.
 # ---------------------------------------------------------------------------
 .idea/*
 !.idea/codeStyles/
 !.idea/inspectionProfiles/
-!.idea/icon.png
 .idea/codeStyles/codeStyleConfig.xml
 *.iml
-*.iws
-*.ipr
-out/
-
-# ---------------------------------------------------------------------------
-# Desktop agent (jpackage / JVM)
-# ---------------------------------------------------------------------------
-/desktop-agent/build/
-/desktop-agent/dist/
-*.jar
-!gradle/wrapper/*.jar
-hs_err_pid*.log
-replay_pid*.log
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json
 
 # ---------------------------------------------------------------------------
 # Hệ điều hành
@@ -82,3 +85,4 @@ $RECYCLE.BIN/
 *.tmp
 *.bak
 .claude/settings.local.json
+.playwright-mcp/
