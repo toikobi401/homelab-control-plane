@@ -1,23 +1,32 @@
 {
   "$schema": "https://json.schemastore.org/launchsettings.json",
   "profiles": {
-    "http": {
+    "Hub.Api (localhost)": {
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": true,
-      "applicationUrl": "http://localhost:5066",
-      "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
-      }
-    },
-    "https": {
-      "commandName": "Project",
-      "dotnetRunMessages": true,
-      "launchBrowser": true,
+      "launchUrl": "health",
       "applicationUrl": "https://localhost:7189;http://localhost:5066",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "HUB_BIND_MODE": "Localhost"
       }
+    },
+    "Hub.Api (tailnet)": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "HUB_BIND_MODE": "Tailnet"
+      }
+    },
+    "Hub.Api (Docker Compose)": {
+      "commandName": "Executable",
+      "executablePath": "docker",
+      "commandLineArgs": "compose up --build",
+      "workingDirectory": "$(SolutionDir)",
+      "launchBrowser": false
     }
   }
 }
