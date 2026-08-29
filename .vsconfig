@@ -1,0 +1,10 @@
+{
+  "version": "1.0",
+  "components": [
+    "Microsoft.VisualStudio.Workload.NetWeb",
+    "Microsoft.VisualStudio.Workload.ManagedDesktop",
+    "Microsoft.NetCore.Component.SDK",
+    "Microsoft.NetCore.Component.Web",
+    "Microsoft.VisualStudio.Component.Git"
+  ]
+}

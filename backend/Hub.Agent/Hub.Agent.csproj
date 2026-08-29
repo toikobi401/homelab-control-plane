@@ -1,9 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-Hub.Agent-caaca0c1-e803-4b64-8c96-0c3a7a89a0c5</UserSecretsId>
   </PropertyGroup>
 

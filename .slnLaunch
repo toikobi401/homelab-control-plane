@@ -1,0 +1,27 @@
+[
+  {
+    "Name": "Api + Agent",
+    "Projects": [
+      {
+        "Path": "backend\Hub.Api\Hub.Api.csproj",
+        "Action": "Start",
+        "DebugTarget": "Hub.Api (localhost)"
+      },
+      {
+        "Path": "backend\Hub.Agent\Hub.Agent.csproj",
+        "Action": "Start",
+        "DebugTarget": "Hub.Agent"
+      }
+    ]
+  },
+  {
+    "Name": "Api only",
+    "Projects": [
+      {
+        "Path": "backend\Hub.Api\Hub.Api.csproj",
+        "Action": "Start",
+        "DebugTarget": "Hub.Api (localhost)"
+      }
+    ]
+  }
+]

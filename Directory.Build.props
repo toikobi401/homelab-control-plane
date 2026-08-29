@@ -1,0 +1,21 @@
+<Project>
+
+  <!-- Thuộc tính dùng chung cho mọi project trong solution.
+       Đặt ở đây thay vì lặp lại trong từng .csproj. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Cảnh báo là lỗi: giữ build sạch ngay từ đầu (PROGRESS.md yêu cầu 0 warning).
+         Bật cho cả VS lẫn CLI để hai bên không lệch nhau. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!-- Bỏ generate file .deps trùng lặp khi debug nhiều project -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>
