@@ -1,8 +1,10 @@
 using System.Security.Claims;
+using Hub.Api.Security;
 using Hub.Core.Authentication;
 using Hub.Core.Results;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Hub.Api.Authentication;
@@ -23,14 +25,17 @@ public static class AuthEndpoints
 
         group.MapPost("/setup", SetupAsync)
             .AllowAnonymous()
+            .RequireAntiforgery()
             .WithSummary("Đặt mật khẩu lần đầu (chỉ từ localhost)");
 
         group.MapPost("/login", LoginAsync)
             .AllowAnonymous()
+            .RequireAntiforgery()
             .WithSummary("Đăng nhập");
 
         group.MapPost("/logout", LogoutAsync)
             .RequireAuthorization()
+            .RequireAntiforgery()
             .WithSummary("Đăng xuất phiên hiện tại");
 
         group.MapGet("/sessions", GetSessionsAsync)
@@ -39,25 +44,31 @@ public static class AuthEndpoints
 
         group.MapDelete("/sessions/{sessionId:guid}", RevokeSessionAsync)
             .RequireAuthorization()
+            .RequireAntiforgery()
             .WithSummary("Thu hồi một phiên");
 
         group.MapPost("/sessions/revoke-all", RevokeAllSessionsAsync)
             .RequireAuthorization()
+            .RequireAntiforgery()
             .WithSummary("Đăng xuất tất cả thiết bị");
 
         group.MapPost("/password", ChangePasswordAsync)
             .RequireAuthorization()
+            .RequireAntiforgery()
             .WithSummary("Đổi mật khẩu");
 
         return builder;
     }
 
-    private static async Task<IResult> GetStatusAsync(
+    // Kiểu trả về khai tường minh (Ok<T>), không phải IResult: OpenAPI suy schema
+    // từ chữ ký, và frontend sinh kiểu TypeScript từ schema đó (§3). Khai IResult
+    // thì spec ra response rỗng và kiểu sinh ra không có dữ liệu trả về.
+    private static async Task<Ok<AuthStatus>> GetStatusAsync(
         AuthService authService,
         CancellationToken cancellationToken)
     {
         var status = await authService.GetStatusAsync(cancellationToken);
-        return Results.Ok(status);
+        return TypedResults.Ok(status);
     }
 
     private static async Task<IResult> SetupAsync(
@@ -79,7 +90,7 @@ public static class AuthEndpoints
         return result.IsSuccess ? Results.NoContent() : ToProblem(result.Error!.Value);
     }
 
-    private static async Task<IResult> LoginAsync(
+    private static async Task<Results<Ok<SessionDto>, ProblemHttpResult>> LoginAsync(
         [FromBody] LoginRequest request,
         HttpContext httpContext,
         AuthService authService,
@@ -112,7 +123,7 @@ public static class AuthEndpoints
                 ExpiresUtc = session.ExpiresAt
             });
 
-        return Results.Ok(ToDto(session, currentSessionId: session.Id));
+        return TypedResults.Ok(ToDto(session, currentSessionId: session.Id));
     }
 
     private static async Task<IResult> LogoutAsync(
@@ -130,7 +141,7 @@ public static class AuthEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> GetSessionsAsync(
+    private static async Task<Ok<List<SessionDto>>> GetSessionsAsync(
         HttpContext httpContext,
         AuthService authService,
         CancellationToken cancellationToken)
@@ -138,7 +149,7 @@ public static class AuthEndpoints
         var current = httpContext.GetSessionId();
         var sessions = await authService.GetActiveSessionsAsync(cancellationToken);
 
-        return Results.Ok(sessions.Select(session => ToDto(session, current)).ToList());
+        return TypedResults.Ok(sessions.Select(session => ToDto(session, current)).ToList());
     }
 
     private static async Task<IResult> RevokeSessionAsync(
@@ -164,7 +175,7 @@ public static class AuthEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> RevokeAllSessionsAsync(
+    private static async Task<Ok<RevokeAllResponse>> RevokeAllSessionsAsync(
         [FromQuery] bool keepCurrent,
         HttpContext httpContext,
         AuthService authService,
@@ -180,7 +191,7 @@ public static class AuthEndpoints
             await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         }
 
-        return Results.Ok(new RevokeAllResponse(count));
+        return TypedResults.Ok(new RevokeAllResponse(count));
     }
 
     private static async Task<IResult> ChangePasswordAsync(
@@ -214,7 +225,7 @@ public static class AuthEndpoints
     /// Đổi lỗi nghiệp vụ thành mã HTTP. §6.5 mục 7: chỉ trả thông báo chung,
     /// chi tiết nằm ở log.
     /// </summary>
-    private static IResult ToProblem(ResultError error)
+    private static ProblemHttpResult ToProblem(ResultError error)
     {
         var statusCode = error.Code switch
         {
@@ -224,7 +235,7 @@ public static class AuthEndpoints
             _ => StatusCodes.Status400BadRequest
         };
 
-        return Results.Problem(title: error.Message, statusCode: statusCode);
+        return TypedResults.Problem(title: error.Message, statusCode: statusCode);
     }
 }
 
@@ -244,3 +255,4 @@ public sealed record SessionDto(
     DateTimeOffset LastSeenAt,
     DateTimeOffset ExpiresAt,
     bool IsCurrent);
+
