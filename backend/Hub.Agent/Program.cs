@@ -3,9 +3,30 @@ using System.Text;
 using Hub.Agent;
 using Hub.Core.Devices;
 using Hub.Windows;
+using Microsoft.Extensions.Logging.EventLog;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// §3: agent chạy như Windows Service, khởi động cùng máy.
+// Khi chạy bằng `dotnet run` thì lệnh này không làm gì cả — .NET tự nhận biết
+// tiến trình có phải service hay không, nên cùng một binary dùng được cả hai
+// cách. Không cần build riêng, không cần cờ điều kiện.
+builder.Host.UseWindowsService(options =>
+{
+    // Tên hiển thị trong services.msc và Event Viewer. Đặt tường minh, vì mặc
+    // định là tên tiến trình ("Hub.Agent") — khó lần ra khi xem log hệ thống.
+    options.ServiceName = "Device Hub Agent";
+});
+
+// Service không có console, nên log mặc định rơi vào hư không: agent chết lúc
+// khởi động thì không có cách nào biết vì sao. Event Log là nơi Windows quy ước
+// cho service, xem bằng Event Viewer. Chỉ đăng ký trên Windows — trên nền tảng
+// khác thì gọi sẽ ném exception.
+if (OperatingSystem.IsWindows())
+{
+    AddWindowsEventLog(builder.Logging);
+}
 
 builder.Services.Configure<AgentSettings>(
     builder.Configuration.GetSection(AgentSettings.SectionName));
@@ -97,6 +118,18 @@ app.MapPost("/agent/power", (
 });
 
 app.Run();
+
+/// <summary>
+/// Ghi log vào Windows Event Log. Tách thành hàm riêng có đánh dấu nền tảng để
+/// analyzer chứng minh được là chỉ chạy trên Windows (CA1416) — đặt trực tiếp
+/// trong lambda thì nó không suy ra được từ câu lệnh <c>if</c> bên ngoài.
+/// </summary>
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
+static void AddWindowsEventLog(ILoggingBuilder logging)
+{
+    var settings = new EventLogSettings { SourceName = "Device Hub Agent" };
+    logging.AddEventLog(settings);
+}
 
 /// <summary>
 /// So sánh khoá theo thời gian cố định — so sánh chuỗi thường thoát sớm ở byte

@@ -91,14 +91,73 @@ phải trả lời được câu "ai đã tắt máy tôi lúc 3 giờ sáng".
 
 ## Chạy agent như dịch vụ
 
-Lúc phát triển:
+Lúc phát triển, chạy thẳng trong terminal:
 
 ```bash
 dotnet run --project backend/Hub.Agent
 ```
 
-Chạy thật thì đăng ký làm Windows Service để khởi động cùng máy (§3). Chưa làm — xem nợ kỹ thuật
-trong PROGRESS.md.
+Chạy thật thì đăng ký làm **Windows Service** để khởi động cùng máy (§3). Cùng một binary dùng được
+cả hai cách — .NET tự nhận biết tiến trình có phải service hay không, không cần build riêng.
+
+### Đặt khoá chung trước khi cài
+
+Service chạy dưới tài khoản `LocalSystem`, **không thấy** biến môi trường của tài khoản bạn. Phải
+đặt ở cấp máy:
+
+```powershell
+# PowerShell với quyền Administrator
+[Environment]::SetEnvironmentVariable('Agent__SharedSecret', '<khoá>', 'Machine')
+```
+
+Dấu `__` (hai gạch dưới) là cách .NET ánh xạ `Agent:SharedSecret` sang biến môi trường.
+
+Bỏ qua bước này thì agent vẫn chạy nhưng **từ chối mọi lệnh** và ghi lỗi
+`Chưa cấu hình Agent:SharedSecret` vào Event Log.
+
+### Cài, gỡ, xem trạng thái
+
+```powershell
+# PowerShell với quyền Administrator
+cd scripts
+.\agent-service.ps1 install      # publish + đăng ký + khởi động
+.\agent-service.ps1 status       # xem trạng thái (không cần Administrator)
+.\agent-service.ps1 restart      # dùng sau khi đổi cấu hình
+.\agent-service.ps1 uninstall    # dừng và xoá service
+```
+
+`install` publish bản Release vào `C:\ProgramData\DeviceHub\Agent` — **không** chạy thẳng từ thư mục
+repo, vì repo có thể bị đổi nhánh hoặc xoá còn service thì trỏ vào một đường dẫn cố định. Đổi chỗ
+bằng `-InstallPath`.
+
+Service được đặt:
+
+- **`delayed-auto`** — khởi động cùng máy nhưng hoãn một chút, để mạng và Tailscale kịp sẵn sàng
+  (agent gọi hub ngay khi chạy).
+- **Tự chạy lại khi lỗi** — sau 5 giây, 10 giây, rồi mỗi 60 giây. Không có cái này thì agent chết
+  một lần là nằm im tới khi khởi động lại máy.
+
+### Xem log
+
+Service không có console, nên log đi vào **Windows Event Log**:
+
+```powershell
+Get-EventLog -LogName Application -Source 'Device Hub Agent' -Newest 20
+```
+
+Hoặc Event Viewer → Windows Logs → Application, lọc theo nguồn `Device Hub Agent`.
+
+Đây là chỗ đầu tiên cần xem nếu service khởi động rồi tắt ngay.
+
+### Kiểm chứng
+
+```powershell
+curl http://127.0.0.1:5199/agent/health     # phải trả 200
+.\agent-service.ps1 status                  # phải thấy Running
+```
+
+Sau đó vào giao diện hub xem thiết bị có báo danh không (agent tự gọi
+`POST /api/devices/register` mỗi lần khởi động).
 
 ## Chưa có: đánh thức máy (Wake)
 
