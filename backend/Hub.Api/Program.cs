@@ -41,6 +41,14 @@ Directory.CreateDirectory(dataDirectory);
 
 var databasePath = Path.Combine(dataDirectory, "hub.db");
 
+// Đặt lại mật khẩu khi quên mật khẩu cũ. Chạy trên chính máy có file DB nên
+// không cần dựng web host — xem PasswordResetTool để biết vì sao nó không phá
+// quy tắc "đổi mật khẩu phải nhập mật khẩu cũ" của §6.3.
+if (args.Contains(PasswordResetTool.Flag))
+{
+    return await PasswordResetTool.RunAsync(args, databasePath);
+}
+
 builder.Services.AddDbContext<HubDbContext>(options =>
     options.UseSqlite($"Data Source={databasePath}"));
 
