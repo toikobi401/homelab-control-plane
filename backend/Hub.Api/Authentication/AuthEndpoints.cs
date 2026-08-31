@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Hub.Api.Security;
+using Microsoft.AspNetCore.RateLimiting;
 using Hub.Core.Authentication;
 using Hub.Core.Results;
 using Microsoft.AspNetCore.Authentication;
@@ -26,11 +27,13 @@ public static class AuthEndpoints
         group.MapPost("/setup", SetupAsync)
             .AllowAnonymous()
             .RequireAntiforgery()
+            .RequireRateLimiting(RateLimiting.AuthPolicy)
             .WithSummary("Đặt mật khẩu lần đầu (chỉ từ localhost)");
 
         group.MapPost("/login", LoginAsync)
             .AllowAnonymous()
             .RequireAntiforgery()
+            .RequireRateLimiting(RateLimiting.AuthPolicy)
             .WithSummary("Đăng nhập");
 
         group.MapPost("/logout", LogoutAsync)

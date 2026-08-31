@@ -103,6 +103,15 @@ builder.Services.AddAntiforgery(options =>
     options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
 });
 
+// Rate limit — cần khi mở ra Internet. Tailnet vốn che việc này: chỉ thiết bị
+// đã cài Tailscale mới gọi tới được, nên không ai dội request vào hệ thống.
+builder.Services.AddHubRateLimiting();
+
+// Sau Cloudflare Tunnel, TLS kết thúc ở biên và hub nhận HTTP trên loopback.
+// Không đọc X-Forwarded-Proto thì cookie antiforgery (Secure) ném lỗi và mọi
+// POST trả 500. Chỉ bật ở chế độ Tunnel — xem ForwardedHeadersSetup.
+builder.Services.AddTunnelForwardedHeaders(bindMode);
+
 // Phase 0: frontend sinh kiểu TypeScript từ spec này (§3).
 builder.Services.AddOpenApi();
 
@@ -138,6 +147,18 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
 // Phải đứng TRƯỚC routing: đặt sau các MapGet thì endpoint fallback khớp trước,
 // và mọi file js/css bị trả về index.html với MIME text/html — trình duyệt từ
 // chối nạp module. Đã gặp thật, không phải phòng xa.
+// PHẢI đứng trước mọi middleware khác: nó sửa lại Request.IsHttps và
+// RemoteIpAddress từ header chuyển tiếp, mà cả header bảo mật lẫn rate limit
+// đều dựa vào hai giá trị đó.
+app.UseForwardedHeaders();
+
+// Header bảo mật đặt sớm để áp cho MỌI phản hồi, kể cả file tĩnh và trang lỗi.
+app.UseHubSecurityHeaders();
+
+// Rate limit trước static files: request dội vào file tĩnh cũng phải bị chặn,
+// không thì bot vẫn làm nghẽn được máy bằng cách tải index.html liên tục.
+app.UseRateLimiter();
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 

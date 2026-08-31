@@ -178,6 +178,28 @@ chính request):
 
 Liệt kê mọi tên/IP dùng để truy cập. Thiếu cái nào thì vào bằng cái đó sẽ lỗi.
 
+**Lỗi hiện ở đâu:** kiểm tra origin nằm ở WebSocket `control.ashx` (`webserver.js` dòng 7401), tức
+là **sau khi** trang login đã tải xong. Nên triệu chứng là trang hiện ra bình thường rồi mới báo
+"Invalid origin in HTTP request, click to reconnect" — dễ tưởng lỗi mạng.
+
+**MeshCentral chỉ đọc config lúc khởi động.** Sửa `allowedorigin` xong phải khởi động lại; không thì
+nó vẫn chạy bản cũ và lỗi y nguyên. Đã mất thời gian vì chuyện này — kiểm tra bằng cách so
+`CreationDate` của tiến trình `node.exe` với `LastWriteTime` của `config.json`.
+
+Khi thêm tên miền mới (Cloudflare Tunnel), phải thêm vào **cả hai** danh sách:
+
+```json
+"settings": {
+  "allowedFramingOrigins": ["https://hub.tenmien-cua-ban.com", ...]
+},
+"domains": {
+  "": { "allowedorigin": ["mesh.tenmien-cua-ban.com", ...] }
+}
+```
+
+`allowedFramingOrigins` cho iframe của hub; `allowedorigin` cho chính request tới MeshCentral. Thiếu
+cái nào hỏng cái đó.
+
 ## Quyền — bắt buộc theo §5a
 
 §5a cấm tuyệt đối chạy lệnh tuỳ ý:

@@ -43,8 +43,8 @@ Các năng lực 2, 3, 4, 6 phụ thuộc vào lớp transport và xác thực c
   làm, chạy hoàn toàn nội bộ — xem §6.
 - Không dùng backend cloud mà người dùng phải trả tiền hoặc phải vận hành. (Ngoại lệ duy nhất: năng
   lực 5 gọi API công khai của bên thứ ba — xem §5.)
-- Không đưa hệ thống ra Internet công cộng. Không port forwarding, không tên miền công khai, không
-  Cloudflare Tunnel. Vào được chỉ qua tailnet.
+- ~~Không đưa hệ thống ra Internet công cộng.~~ **Đã đổi 2026-08-31** — xem §4a. Vẫn **không port
+  forwarding**; ra Internet qua Cloudflare Tunnel, và tailnet vẫn là đường ưu tiên.
 - **Không theo dõi vị trí.** Đã bỏ hẳn — xem §2.
 
 ---
@@ -262,6 +262,57 @@ curl http://<IP-tailnet>:5000/health                # phải trả 200
 ```
 
 ---
+## 4a. Mở ra Internet — ngoại lệ có điều kiện
+
+**Quyết định 2026-08-31.** §1 ban đầu cấm đưa hệ thống ra Internet, và §4 quy định chỉ bind tailnet.
+Người dùng đổi yêu cầu: muốn vào được từ mọi thiết bị, không cần cài Tailscale.
+
+Đây là **đánh đổi có ý thức**, ghi lại đầy đủ để sau này không phải tranh luận lại.
+
+### Mất gì
+
+Tailnet vốn che ba thứ, mở ra Internet là mất cả ba:
+
+| Tailnet che | Ra Internet thì |
+|---|---|
+| Chỉ thiết bị đã cài Tailscale gọi tới được | Mọi bot quét cổng chạm tới màn hình đăng nhập |
+| Không ai dội request | Cần rate limit, nếu không một script là làm nghẽn máy |
+| Không có kẻ lạ ở giữa | Cần HSTS và header bảo mật |
+
+Đáng lo hơn bình thường vì hệ thống này **tắt máy và điều khiển màn hình từ xa** (§5a). Một phiên bị
+chiếm không phải mất dữ liệu — là mất cả PC lẫn laptop.
+
+### Vẫn giữ
+
+- **Không port forwarding.** Router không mở cổng nào. Cloudflare Tunnel gọi ra, không ai gọi vào.
+- **Tailnet vẫn là đường ưu tiên.** Ở nhà thì dùng `hub.tailnet-example.ts.net:7189` — nhanh
+  hơn và không qua bên thứ ba.
+- **§6 không đổi.** Vẫn một người dùng, session cookie, phiên lưu trong DB, thu hồi được.
+- **§5a không đổi.** Vẫn cấm chạy lệnh tuỳ ý, vẫn duyệt thủ công thiết bị, vẫn nhật ký kiểm toán.
+
+### Phải có trước khi mở
+
+Những thứ tailnet vốn che, giờ phải tự làm:
+
+1. **Rate limit** (`Hub.Api/Security/RateLimiting.cs`) — 300 request/phút chung, **10/phút** cho
+   endpoint xác thực. Phân vùng theo `CF-Connecting-IP` (Cloudflare đặt, ghi đè giá trị client gửi),
+   **không** theo `X-Forwarded-For` vì client tự đặt được.
+2. **Header bảo mật** (`Hub.Api/Security/SecurityHeaders.cs`) — HSTS, `X-Frame-Options: DENY`,
+   `nosniff`, `Referrer-Policy: no-referrer`.
+3. **Chế độ bind `Tunnel`** — chỉ nghe loopback `127.0.0.1:7190`. Không cổng nào mở ra LAN hay
+   Internet kể cả khi firewall bị tắt nhầm; chỉ `cloudflared` trên chính máy đó gọi vào được.
+
+### Cái giá phải chấp nhận
+
+**Cloudflare thấy được lưu lượng đã giải mã.** TLS kết thúc ở biên của họ. Với hệ thống điều khiển
+máy cá nhân thì đây là đánh đổi thật, không phải chi tiết nhỏ — nhưng đổi lại được chống DDoS, WAF,
+và không phải mở cổng nào trên router.
+
+Nếu điều này không chấp nhận được, phương án thay thế là VPS tự quản làm reverse proxy nối về nhà
+qua tailnet — tốn tiền hàng tháng và thêm một máy phải vận hành.
+
+---
+
 ## 5. Năng lực 5 — Đọc truyện tranh (đứng riêng)
 
 ### Vì sao nó đứng riêng
@@ -829,6 +880,8 @@ lý do.
 | 2026-08-29 | Truy cập qua **MagicDNS + `tailscale cert`**, không tự dựng DNS/CA | Chứng chỉ Let's Encrypt hợp lệ, không cảnh báo trình duyệt, iPhone không phải cài profile thủ công |
 | 2026-08-29 | Backend làm **proxy ảnh** cho năng lực 5 | Trình duyệt không chọn được HTTP/3 và bị CORS chặn. Đồng thời **xoá bỏ câu hỏi chặn đường về Cronet** — `HttpClient` của .NET nói HTTP/3 sẵn |
 | 2026-08-29 | Backend thiết kế để chuyển sang NAS: lõi không phụ thuộc Windows | Đích đến là NAS chạy 24/7. Mã riêng cho Windows nằm ở agent, sau interface |
+| 2026-08-31 | Mở ra Internet qua Cloudflare Tunnel, bỏ ràng buộc "chỉ tailnet" của §1 | Yêu cầu của người dùng: vào được từ mọi thiết bị không cần cài Tailscale. Đổi lại phải tự làm rate limit và header bảo mật — thứ tailnet vốn che. Vẫn không port forwarding. Xem §4a |
+| 2026-08-31 | Năng lực 6 dùng MeshCentral thay vì agent tự viết | §2.3 — tái sử dụng, đừng phát minh lại. Được sẵn Wake-on-LAN, agent đa nền tảng, giao diện mobile |
 | 2026-08-29 | Trong container: bind `0.0.0.0`, chặn bằng cổng publish gắn IP tailnet | Container có netns riêng nên `0.0.0.0` không phơi ra mạng nhà. Cách chuẩn của Docker, chạy được trên mọi NAS. Đã kiểm chứng: từ LAN không vào được, qua tailnet trả 200 |
 
 ---

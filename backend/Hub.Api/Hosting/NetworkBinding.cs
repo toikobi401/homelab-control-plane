@@ -31,7 +31,35 @@ public enum BindMode
     ///
     /// Publish kiểu "5000:8080" (thiếu IP) là phơi ra Wi-Fi nhà — đúng thứ §4 cấm.
     /// </summary>
-    Container
+    Container,
+
+    /// <summary>
+    /// Chỉ nghe trên loopback, để **Cloudflare Tunnel** chuyển tiếp vào.
+    ///
+    /// Dùng khi mở hệ thống ra Internet. `cloudflared` chạy trên chính máy này
+    /// và gọi vào 127.0.0.1 — không cổng nào mở ra LAN hay Internet, kể cả khi
+    /// firewall bị tắt nhầm.
+    ///
+    /// Đây là ngoại lệ có chủ đích với §1 ("không đưa hệ thống ra Internet") —
+    /// xem nhật ký quyết định trong CONTEXT.md §11. Đi kèm là rate limit và
+    /// header bảo mật, những thứ tailnet vốn che cho ta.
+    /// </summary>
+    Tunnel,
+
+    /// <summary>
+    /// Nghe trên địa chỉ LAN, để router chuyển tiếp (port forwarding) vào.
+    ///
+    /// **Chế độ hở nhất trong bốn chế độ.** Nó phơi hub ra cả Wi-Fi nhà lẫn
+    /// Internet — không có Cloudflare làm lớp chắn như <see cref="Tunnel"/>,
+    /// nên rate limit và header bảo mật là phòng thủ duy nhất.
+    ///
+    /// Chỉ nên dùng tạm khi chưa có tên miền. Có miền rồi thì chuyển sang
+    /// Tunnel: không mở cổng nào trên router, và có chứng chỉ thật.
+    ///
+    /// Bind đúng card mạng vật lý, không phải 0.0.0.0 — cách này ít nhất giữ
+    /// cho Radmin VPN và các card ảo không lộ theo.
+    /// </summary>
+    Lan
 }
 
 /// <summary>Chứng chỉ TLS kèm chuỗi trung gian gửi cho client.</summary>
@@ -47,6 +75,12 @@ public static class NetworkBinding
     /// địa chỉ khi chuyển giữa hai chế độ.
     /// </summary>
     private const int TailnetPort = 7189;
+
+    /// <summary>Cổng loopback cho Cloudflare Tunnel chuyển tiếp vào.</summary>
+    private const int TunnelPort = 7190;
+
+    /// <summary>Cổng nghe trên LAN khi dùng port forwarding.</summary>
+    private const int LanPort = 7189;
 
     /// <summary>Khoá cấu hình trỏ tới chứng chỉ `tailscale cert` cấp.</summary>
     public const string CertificateKey = "HUB_TLS_CERT";
@@ -84,6 +118,40 @@ public static class NetworkBinding
             case BindMode.Container:
                 builder.WebHost.ConfigureKestrel(kestrel =>
                     kestrel.ListenAnyIP(ContainerPort));
+                break;
+
+            case BindMode.Lan:
+                var lanAddress = FindLanAddress()
+                    ?? throw new InvalidOperationException(
+                        "Không tìm thấy địa chỉ LAN riêng tư trên card mạng vật lý. " +
+                        "Kiểm tra máy có kết nối mạng nhà không.");
+
+                var lanCertificate = LoadCertificate(builder.Configuration);
+
+                builder.WebHost.ConfigureKestrel(kestrel =>
+                    kestrel.Listen(lanAddress, LanPort, listen =>
+                    {
+                        // Cookie phiên đặt Secure (§6.3) nên HTTP trần sẽ không
+                        // giữ được phiên — đăng nhập xong vẫn bị đẩy ra.
+                        if (lanCertificate is not null)
+                        {
+                            listen.UseHttps(lanCertificate.Leaf, https =>
+                                https.ServerCertificateChain = lanCertificate.Chain);
+                        }
+                        else
+                        {
+                            listen.UseHttps();
+                        }
+                    }));
+                break;
+
+            case BindMode.Tunnel:
+                // HTTP trần trên loopback: TLS do Cloudflare lo ở biên, và gói
+                // tin không rời khỏi máy này nên không có gì để nghe lén.
+                // Dùng HTTPS ở đây chỉ thêm một chứng chỉ phải quản mà không
+                // được gì.
+                builder.WebHost.ConfigureKestrel(kestrel =>
+                    kestrel.ListenLocalhost(TunnelPort));
                 break;
 
             case BindMode.Tailnet:
@@ -226,6 +294,55 @@ public static class NetworkBinding
             .Select(addr => addr.Address)
             .Where(addr => addr.AddressFamily == AddressFamily.InterNetwork)
             .FirstOrDefault(IsTailnetAddress);
+    }
+
+    /// <summary>
+    /// Địa chỉ IPv4 riêng tư trên card mạng VẬT LÝ.
+    ///
+    /// Loại card ảo (VirtualBox, VMware, WSL, Docker) và VPN (Tailscale, Radmin):
+    /// bind nhầm vào chúng thì router không chuyển tiếp tới được, và tệ hơn là
+    /// có thể phơi hub ra một mạng khác ngoài dự tính.
+    /// </summary>
+    private static IPAddress? FindLanAddress()
+    {
+        return NetworkInterface.GetAllNetworkInterfaces()
+            .Where(nic => nic.OperationalStatus == OperationalStatus.Up)
+            .Where(nic => nic.NetworkInterfaceType is NetworkInterfaceType.Ethernet
+                or NetworkInterfaceType.Wireless80211)
+            .Where(nic => !IsVirtualInterface(nic))
+            .SelectMany(nic => nic.GetIPProperties().UnicastAddresses)
+            .Select(addr => addr.Address)
+            .Where(addr => addr.AddressFamily == AddressFamily.InterNetwork)
+            .Where(IsPrivateLanAddress)
+            .FirstOrDefault();
+    }
+
+    private static bool IsVirtualInterface(NetworkInterface nic)
+    {
+        string[] hints =
+        [
+            "virtualbox", "vmware", "hyper-v", "vethernet", "wsl",
+            "docker", "radmin", "tailscale", "zerotier", "loopback"
+        ];
+
+        return hints.Any(hint =>
+            nic.Name.Contains(hint, StringComparison.OrdinalIgnoreCase)
+            || nic.Description.Contains(hint, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsPrivateLanAddress(IPAddress address)
+    {
+        var octets = address.GetAddressBytes();
+
+        // Bỏ dải CGNAT của Tailscale — nó không phải LAN vật lý.
+        if (octets[0] == 100 && octets[1] >= 64 && octets[1] <= 127)
+        {
+            return false;
+        }
+
+        return octets[0] == 10
+            || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
+            || (octets[0] == 192 && octets[1] == 168);
     }
 
     private static bool IsTailscaleInterface(NetworkInterface nic)
