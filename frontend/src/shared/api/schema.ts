@@ -16,6 +16,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/antiforgery/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lấy CSRF token cho các request đổi trạng thái */
+        get: operations["GetAntiforgeryToken"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/meshcentral/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Địa chỉ MeshCentral để nhúng vào giao diện */
+        get: operations["GetMeshCentralConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/status": {
         parameters: {
             query?: never;
@@ -340,7 +374,8 @@ export interface paths {
         get: operations["GetDevice"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Gỡ thiết bị khỏi sổ đăng ký */
+        delete: operations["DeleteDevice"];
         options?: never;
         head?: never;
         patch?: never;
@@ -408,6 +443,23 @@ export interface paths {
         put?: never;
         /** Thu hồi duyệt */
         post: operations["RevokeDeviceApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Nhật ký kiểm toán lệnh điều khiển */
+        get: operations["GetDeviceCommands"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -482,27 +534,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/devices/commands": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Nhật ký kiểm toán lệnh điều khiển */
-        get: operations["GetDeviceCommands"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AntiforgeryTokenDto: {
+            token: string;
+            headerName: string;
+        };
         AuthStatus: {
             passwordConfigured: boolean;
         };
@@ -547,12 +586,18 @@ export interface components {
         LoginRequest: {
             password: string;
         };
+        MeshCentralConfigDto: {
+            configured: boolean;
+            url: null | string;
+        };
         RegisterDeviceRequest: {
             hostname: string;
             operatingSystem: string;
             macAddress: null | string;
             lanLabel: null | string;
             isBackendHost: boolean;
+            /** @default false */
+            fromAgent: boolean;
         };
         RegisteredDeviceDto: {
             /** Format: uuid */
@@ -568,6 +613,8 @@ export interface components {
             registeredAt: string;
             /** Format: date-time */
             lastSeenAt: string;
+            /** Format: date-time */
+            agentLastSeenAt: null | string;
         };
         RevokeAllResponse: {
             /** Format: int32 */
@@ -618,6 +665,46 @@ export interface operations {
             };
         };
     };
+    GetAntiforgeryToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AntiforgeryTokenDto"];
+                };
+            };
+        };
+    };
+    GetMeshCentralConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshCentralConfigDto"];
+                };
+            };
+        };
+    };
     GetDevices: {
         parameters: {
             query?: never;
@@ -660,6 +747,26 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DeleteDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deviceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -751,6 +858,26 @@ export interface operations {
             };
         };
     };
+    GetDeviceCommands: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandAuditDto"][];
+                };
+            };
+        };
+    };
     ShutdownDevice: {
         parameters: {
             query?: never;
@@ -828,26 +955,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    GetDeviceCommands: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CommandAuditDto"][];
-                };
             };
         };
     };

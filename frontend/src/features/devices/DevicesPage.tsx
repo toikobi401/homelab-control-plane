@@ -9,6 +9,7 @@ import { ApiError } from '@/shared/api/client'
 import { useDevices, type DeviceDto } from '@/shared/api/devices'
 
 import { DeviceIcon } from './DeviceIcon'
+import { PageContainer } from '@/shared/components/PageContainer'
 
 /**
  * Năng lực 1 — thiết bị trong tailnet và trạng thái hiện diện.
@@ -22,7 +23,7 @@ export function DevicesPage() {
   const { data, error, isPending, isError, isFetching, refetch } = useDevices()
 
   return (
-    <div className="space-y-4">
+    <PageContainer className="space-y-4">
       <div className="lg:flex lg:items-start lg:justify-between lg:gap-6">
         <div>
           <h1 className="text-xl font-semibold tracking-tight lg:text-2xl">Thiết bị</h1>
@@ -67,7 +68,7 @@ export function DevicesPage() {
           {isFetching ? 'Đang cập nhật…' : 'Cập nhật'}
         </Button>
       ) : null}
-    </div>
+    </PageContainer>
   )
 }
 

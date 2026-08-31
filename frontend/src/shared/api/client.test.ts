@@ -2,14 +2,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError, apiFetch, __resetCsrfTokenForTests } from './client'
 
+/**
+ * `fetch` nhận string | URL | Request. `String()` trên Request cho
+ * "[object Object]", nên phải lấy URL đúng cách theo từng kiểu.
+ */
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input
+  if (input instanceof URL) return input.href
+  return input.url
+}
+
 function mockFetch(response: Response) {
   // Request đổi trạng thái sẽ gọi thêm /api/antiforgery/token trước; trả token
   // giả cho lời gọi đó để test tập trung vào hành vi đang kiểm.
-  const spy = vi.fn<typeof fetch>().mockImplementation((input) =>
-    String(input) === '/api/antiforgery/token'
-      ? Promise.resolve(Response.json({ token: 'tok-test', headerName: 'X-CSRF-Token' }))
-      : Promise.resolve(response),
-  )
+  const spy = vi
+    .fn<typeof fetch>()
+    .mockImplementation((input) =>
+      urlOf(input) === '/api/antiforgery/token'
+        ? Promise.resolve(Response.json({ token: 'tok-test', headerName: 'X-CSRF-Token' }))
+        : Promise.resolve(response),
+    )
 
   vi.stubGlobal('fetch', spy)
   return spy
@@ -82,7 +94,9 @@ describe('apiFetch', () => {
         method: 'POST',
         body: JSON.stringify({ password: 'bí mật' }),
         // Kèm cả CSRF token: POST là request đổi trạng thái (§6.5 mục 5).
-        headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+        }) as Record<string, string>,
       }),
     )
   })
@@ -91,7 +105,7 @@ describe('apiFetch', () => {
     /** Giả lập backend: endpoint token trả token, các endpoint khác trả theo kịch bản. */
     function mockWithCsrf(handler: (url: string, init?: RequestInit) => Response) {
       const spy = vi.fn<typeof fetch>().mockImplementation((input, init) => {
-        const url = String(input)
+        const url = urlOf(input)
 
         if (url === '/api/antiforgery/token') {
           return Promise.resolve(Response.json({ token: 'tok-1', headerName: 'X-CSRF-Token' }))
@@ -118,7 +132,7 @@ describe('apiFetch', () => {
 
       await apiFetch('/api/devices/abc/lock', { method: 'POST' })
 
-      const call = spy.mock.calls.find(([url]) => String(url).endsWith('/lock'))
+      const call = spy.mock.calls.find(([url]) => urlOf(url).endsWith('/lock'))
       expect(call).toBeDefined()
       expect((call?.[1]?.headers as Record<string, string>)['X-CSRF-Token']).toBe('tok-1')
     })
@@ -162,7 +176,9 @@ describe('apiFetch', () => {
         return Response.json({ title: 'Sai token.' }, { status: 400 })
       })
 
-      await expect(apiFetch('/api/auth/logout', { method: 'POST' })).rejects.toBeInstanceOf(ApiError)
+      await expect(apiFetch('/api/auth/logout', { method: 'POST' })).rejects.toBeInstanceOf(
+        ApiError,
+      )
 
       expect(attempts).toBe(2)
     })

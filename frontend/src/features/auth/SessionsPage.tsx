@@ -13,6 +13,7 @@ import {
   useSessions,
   type SessionDto,
 } from '@/shared/api/auth'
+import { PageContainer } from '@/shared/components/PageContainer'
 
 /**
  * Phiên đăng nhập đang mở (§6.3).
@@ -26,7 +27,7 @@ export function SessionsPage() {
   const revokeAll = useRevokeAllSessions()
 
   return (
-    <div className="space-y-4">
+    <PageContainer className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold tracking-tight lg:text-2xl">Phiên đăng nhập</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -98,7 +99,7 @@ export function SessionsPage() {
           <AlertDescription>{revokeAll.error.message}</AlertDescription>
         </Alert>
       ) : null}
-    </div>
+    </PageContainer>
   )
 }
 

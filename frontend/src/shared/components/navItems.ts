@@ -24,8 +24,9 @@ export const navItems: readonly NavItem[] = [
   { to: '/devices', label: 'Thiết bị', icon: Server },
   { to: '/files', label: 'Tệp', icon: HardDrive },
   { to: '/backup', label: 'Sao lưu', icon: Upload },
-  // Năng lực 6 (điều khiển nguồn), KHÔNG phải năng lực 4 (điều khiển màn hình
-  // qua noVNC) — cái đó chưa xây.
+  // Năng lực 6, nhúng MeshCentral. Nó lo cả điều khiển nguồn lẫn điều khiển
+  // màn hình, nên năng lực 4 coi như được phục vụ luôn ở đây (§2.3: tái sử
+  // dụng thay vì tự viết).
   { to: '/remote', label: 'Điều khiển', icon: Power },
   { to: '/manga', label: 'Truyện', icon: BookOpen },
   // Quản lý phiên là việc thỉnh thoảng mới làm — không xứng một ô trong năm ô

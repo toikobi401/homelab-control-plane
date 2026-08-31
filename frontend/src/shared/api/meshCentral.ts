@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 
-import { apiFetch } from './client'
+import { apiFetch, type components } from './client'
 
 /**
  * Cấu hình MeshCentral — công cụ quản lý thiết bị mà hub nhúng vào (§2.3).
@@ -8,11 +8,11 @@ import { apiFetch } from './client'
  * Địa chỉ lấy từ backend chứ không hardcode: nó khác nhau giữa máy dev và máy
  * thật, và iframe chạy trên máy NGƯỜI DÙNG nên phải là địa chỉ họ gọi tới được
  * (tailnet), không phải localhost của máy chạy hub.
+ *
+ * Kiểu sinh từ OpenAPI (§3), không viết tay — bản viết tay trước đây tình cờ
+ * khớp schema, nhưng đó là may mắn chứ không phải cơ chế.
  */
-export interface MeshCentralConfig {
-  configured: boolean
-  url: string | null
-}
+export type MeshCentralConfig = components['schemas']['MeshCentralConfigDto']
 
 export const meshCentralConfigQueryKey = ['meshcentral', 'config'] as const
 

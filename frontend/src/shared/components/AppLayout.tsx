@@ -29,8 +29,19 @@ export function AppLayout() {
         {/* Điện thoại: căn giữa (mx-auto) vì màn hình hẹp, lề hai bên bằng nhau
             trông cân. Desktop: căn trái (lg:mx-0) để nội dung bám sidebar —
             căn giữa trên màn hình rất rộng đẩy nội dung ra xa sidebar, mắt phải
-            quét qua một khoảng trống lớn mỗi lần chuyển trang. */}
-        <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-5 lg:mx-0 lg:max-w-5xl lg:px-8 lg:py-8">
+            quét qua một khoảng trống lớn mỗi lần chuyển trang.
+
+            `flex flex-col` để trang con dùng được `flex-1`/`h-full`: trang nhúng
+            MeshCentral cần iframe cao hết chỗ còn lại. Thiếu nó thì `h-full` của
+            con không có chiều cao tham chiếu và im lặng vô hiệu.
+
+            `min-h-0` cho phép co dưới chiều cao nội dung — mặc định của flex item
+            là `min-height:auto`, khiến iframe cao tràn ra ngoài viewport thay vì
+            cuộn bên trong.
+
+            Bề rộng do trang tự quyết (§ dưới): trang thường bó `max-w`, trang
+            nhúng dùng hết. Đặt `max-w` ở đây thì trang nhúng không thoát ra được. */}
+        <main className="flex w-full min-h-0 flex-1 flex-col px-4 py-5 lg:px-8 lg:py-8">
           <Outlet />
         </main>
 

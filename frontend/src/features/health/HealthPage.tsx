@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useHealth } from '@/shared/api/health'
+import { PageContainer } from '@/shared/components/PageContainer'
 
 /**
  * Trạng thái hub — màn hình chính ở Phase 0.
@@ -16,7 +17,7 @@ export function HealthPage() {
   const { data, error, isPending, isError, isFetching, refetch } = useHealth()
 
   return (
-    <div className="space-y-4">
+    <PageContainer className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold tracking-tight lg:text-2xl">Trạng thái hub</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -58,7 +59,7 @@ export function HealthPage() {
         onRefetch={() => void refetch()}
         className="w-full lg:w-auto"
       />
-    </div>
+    </PageContainer>
   )
 }
 
