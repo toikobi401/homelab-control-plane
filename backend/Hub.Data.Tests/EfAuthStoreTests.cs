@@ -31,7 +31,10 @@ public sealed class EfAuthStoreTests : IAsyncLifetime
             .Options;
 
         _dbContext = new HubDbContext(options);
-        await _dbContext.Database.EnsureCreatedAsync();
+        // Dùng migration đúng như lúc chạy thật, không phải EnsureCreated —
+        // nếu migration lệch với model thì test phải bắt được, chứ không im lặng
+        // tạo schema theo model rồi bỏ sót.
+        await _dbContext.Database.MigrateAsync();
 
         _store = new EfAuthStore(_dbContext, _clock);
     }

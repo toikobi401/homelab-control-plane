@@ -1,4 +1,5 @@
 using Hub.Core.Authentication;
+using Hub.Core.Devices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
@@ -33,6 +34,10 @@ public sealed class HubDbContext(DbContextOptions<HubDbContext> options) : DbCon
 
     public DbSet<FailedLoginAttempt> FailedLoginAttempts => Set<FailedLoginAttempt>();
 
+    public DbSet<RegisteredDevice> Devices => Set<RegisteredDevice>();
+
+    public DbSet<DeviceCommandAudit> DeviceCommands => Set<DeviceCommandAudit>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Credential>(entity =>
@@ -63,6 +68,33 @@ public sealed class HubDbContext(DbContextOptions<HubDbContext> options) : DbCon
 
             // Đếm số lần sai trong cửa sổ thời gian ở mỗi lần đăng nhập.
             entity.HasIndex(attempt => attempt.AttemptedAt);
+        });
+
+        modelBuilder.Entity<RegisteredDevice>(entity =>
+        {
+            entity.HasKey(device => device.Id);
+            entity.Property(device => device.Id).ValueGeneratedNever();
+            entity.Property(device => device.Hostname).IsRequired().HasMaxLength(200);
+            entity.Property(device => device.OperatingSystem).IsRequired().HasMaxLength(100);
+            entity.Property(device => device.TailnetAddress).HasMaxLength(64);
+            entity.Property(device => device.MacAddress).HasMaxLength(17);
+            entity.Property(device => device.LanLabel).HasMaxLength(64);
+
+            // Agent đăng ký lại tra theo hostname; unique để không sinh bản ghi trùng.
+            entity.HasIndex(device => device.Hostname).IsUnique();
+        });
+
+        modelBuilder.Entity<DeviceCommandAudit>(entity =>
+        {
+            entity.HasKey(audit => audit.Id);
+            entity.Property(audit => audit.DeviceHostname).IsRequired().HasMaxLength(200);
+            entity.Property(audit => audit.FailureReason).HasMaxLength(100);
+
+            // Lưu enum thành chuỗi: nhật ký kiểm toán phải đọc được trực tiếp
+            // trong DB, và thêm giá trị enum mới không làm lệch ý nghĩa số cũ.
+            entity.Property(audit => audit.Action).HasConversion<string>().HasMaxLength(32);
+
+            entity.HasIndex(audit => audit.RequestedAt);
         });
 
         ApplyDateTimeOffsetConversions(modelBuilder);

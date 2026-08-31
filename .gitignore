@@ -86,3 +86,14 @@ $RECYCLE.BIN/
 *.bak
 .claude/settings.local.json
 .playwright-mcp/
+
+# File tĩnh của frontend, sinh ra bởi 'npm run build' rồi chép vào đây.
+# Là artifact build, không phải mã nguồn.
+backend/Hub.Api/wwwroot/
+
+# ---------------------------------------------------------------------------
+# Python — script quản lý thiết bị trong scripts/
+# ---------------------------------------------------------------------------
+__pycache__/
+*.pyc
+.venv/

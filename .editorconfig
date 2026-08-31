@@ -39,3 +39,12 @@ csharp_style_prefer_primary_constructors = true:suggestion
 
 # CA1848/CA2254 quá ồn ở giai đoạn dựng khung
 dotnet_diagnostic.CA1848.severity = none
+
+# Code do EF Core sinh tự động. Không áp quy tắc style lên nó — mỗi lần
+# `dotnet ef migrations add` sẽ sinh lại và làm hỏng build.
+[**/Migrations/*.cs]
+generated_code = true
+dotnet_diagnostic.IDE0161.severity = none
+dotnet_diagnostic.IDE0011.severity = none
+dotnet_diagnostic.IDE0300.severity = none
+dotnet_diagnostic.IDE0090.severity = none
