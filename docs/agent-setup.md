@@ -129,17 +129,48 @@ Kiểm chứng khoá đã khớp:
 .\agent-service.ps1 test-lock
 ```
 
-Lệnh này gửi một lệnh `Lock` thật tới agent. Chọn `Lock` vì nó nhẹ nhất trong nhóm A — **màn hình sẽ
-khoá**, mở lại bằng mật khẩu Windows, không tắt máy và không mất việc đang làm.
+Lệnh này gửi một hành động **không hợp lệ** (`__probe__`). Nghe ngược đời, nhưng đây mới là phép thử
+đúng: agent kiểm tra khoá **trước** khi parse hành động, nên `400` chứng minh khoá khớp mà **không
+thực thi lệnh nào**.
 
 | Kết quả | Nghĩa là |
 |---|---|
-| Màn hình khoá + `HTTP 204` | ✅ Khoá khớp, agent nhận lệnh |
+| `HTTP 400` | ✅ Khoá khớp — agent xác thực thành công |
 | `HTTP 401` | Khoá cấp máy khác khoá hub → chạy `set-secret` |
 | `HTTP 503` | Agent chưa thấy khoá nào → chạy `set-secret` |
 | Ký tự không hợp lệ | Đã dán nhầm chỗ giữ chỗ → chạy `set-secret` |
 
 Nếu hub chưa có khoá nào trong user-secrets, `set-secret` sẽ báo và chỉ cách sinh khoá mới.
+
+### ⚠️ Giới hạn Session 0: `Lock` và `Sleep` không chạy khi là service
+
+Service chạy dưới `LocalSystem` trong **Session 0** — phiên dịch vụ, bị Windows cô lập khỏi desktop
+người dùng (từ thời Vista, là ranh giới bảo mật, không phải lỗi cấu hình).
+
+| Lệnh | Là service | `dotnet run` trong phiên của bạn |
+|---|---|---|
+| Shutdown | ✅ Chạy — tác động toàn máy | ✅ |
+| Restart | ✅ Chạy — tác động toàn máy | ✅ |
+| **Lock** | ❌ **500** — Session 0 không có desktop để khoá | ✅ |
+| **Sleep** | ⚠️ Chưa đo — `SetSuspendState` thường cần desktop | ✅ |
+
+`LockWorkStation()` khoá desktop **của phiên gọi nó**. Agent ở Session 0 không có desktop tương tác
+nào, nên hàm trả về false và agent báo `Không khoá được màn hình` kèm HTTP 500.
+
+Kiểm chứng phiên nếu nghi ngờ:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='Hub.Agent.exe'" | Select-Object ProcessId, SessionId
+# SessionId = 0 -> là service. Phiên đăng nhập của bạn thường là 1.
+```
+
+**Chưa quyết cách xử lý.** Ba hướng, chưa chọn — xem PROGRESS.md:
+
+1. Chấp nhận: năng lực 6 chỉ làm shutdown/restart/wake, bỏ lock/sleep. Đơn giản nhất, và khớp với
+   việc §5a vốn cố ý giữ phạm vi hẹp.
+2. Trả lỗi rõ ràng cho lock/sleep thay vì 500 chung chung, nói thẳng là service không làm được.
+3. Dùng `CreateProcessAsUser` để chạy lệnh trong phiên người dùng — làm được nhưng phức tạp và mở
+   thêm bề mặt tấn công cho một hệ thống vốn có quyền tắt máy.
 
 ### Cài, gỡ, xem trạng thái
 

@@ -266,42 +266,52 @@ Gần như chắc chắn là đã dán nhầm chỗ giữ chỗ trong hướng d
             exit 1
         }
 
-        Write-Host "Gửi lệnh Lock tới agent... (màn hình sẽ khoá nếu khoá đúng)" -ForegroundColor Cyan
+        # Gửi một hành động KHÔNG hợp lệ. Nghe ngược đời, nhưng đây mới là phép
+        # thử đúng cho việc kiểm chứng khoá:
+        #
+        #   - Agent kiểm tra khoá TRƯỚC khi parse hành động (xem Program.cs).
+        #     Sai khoá -> 401. Đúng khoá + hành động rác -> 400.
+        #   - Nên 400 chứng minh khoá khớp mà KHÔNG thực thi gì cả.
+        #
+        # Bản trước gửi 'Lock' thật và nhận 500: service chạy dưới LocalSystem ở
+        # Session 0, không có desktop tương tác nào để khoá. Khoá vẫn đúng, chỉ
+        # là phép thử sai — xem PROGRESS.md ngày 2026-08-31.
+        Write-Host "Kiểm tra khoá (không thực thi lệnh nào)..." -ForegroundColor Cyan
 
-        try {
-            $response = Invoke-WebRequest -UseBasicParsing -Method Post `
-                -Uri 'http://127.0.0.1:5199/agent/power' `
-                -Headers @{ Authorization = "Bearer $key" } `
-                -ContentType 'application/json' `
-                -Body '{"action":"Lock"}' `
-                -TimeoutSec 10
+        # -SkipHttpErrorCheck: giữ nguyên response để đọc mã và nội dung lỗi.
+        # Không có nó thì PowerShell ném exception và body đã bị dispose.
+        $response = Invoke-WebRequest -UseBasicParsing -SkipHttpErrorCheck -Method Post `
+            -Uri 'http://127.0.0.1:5199/agent/power' `
+            -Headers @{ Authorization = "Bearer $key" } `
+            -ContentType 'application/json' `
+            -Body '{"action":"__probe__"}' `
+            -TimeoutSec 10 `
+            -ErrorAction Stop
 
-            Write-Host ""
-            Write-Host "HTTP $($response.StatusCode) — khoá KHỚP. Agent nhận lệnh." -ForegroundColor Green
-        }
-        catch {
-            $status = $_.Exception.Response.StatusCode.value__
+        $status = [int]$response.StatusCode
 
-            switch ($status) {
-                401 {
-                    Write-Error @"
-HTTP 401 — khoá KHÔNG khớp.
-
-Biến môi trường cấp máy khác với khoá hub đang dùng. Sửa bằng:
-  .\agent-service.ps1 set-secret
-"@
-                }
-                503 {
-                    Write-Error "HTTP 503 — agent chưa thấy khoá nào. Chạy: .\agent-service.ps1 set-secret"
-                }
-                501 {
-                    Write-Host "HTTP 501 — khoá KHỚP, nhưng máy này không phải Windows." -ForegroundColor Green
-                }
-                default {
-                    Write-Error "Không gọi được agent: $($_.Exception.Message)`n`nAgent có đang chạy không? .\agent-service.ps1 status"
-                }
+        Write-Host ""
+        switch ($status) {
+            400 {
+                Write-Host "Khoá KHỚP. Agent xác thực thành công (HTTP 400 = từ chối hành động thử, đúng như mong đợi)." -ForegroundColor Green
+                Write-Host ""
+                Write-Host "Lưu ý: agent chạy dưới LocalSystem ở Session 0 nên KHÔNG khoá/ngủ được" -ForegroundColor Yellow
+                Write-Host "màn hình của bạn. Shutdown và Restart thì vẫn chạy — xem docs/agent-setup.md."
             }
-            if ($status -ne 501) { exit 1 }
+            401 {
+                Write-Error "HTTP 401 — khoá KHÔNG khớp. Sửa bằng: .\agent-service.ps1 set-secret"
+                exit 1
+            }
+            503 {
+                Write-Error "HTTP 503 — agent chưa thấy khoá nào. Chạy: .\agent-service.ps1 set-secret"
+                exit 1
+            }
+            default {
+                # Không đoán. In nguyên mã và nội dung agent trả về.
+                $body = [System.Text.Encoding]::UTF8.GetString($response.Content)
+                Write-Error "HTTP $status — không nằm trong các trường hợp đã biết.`n`nAgent trả về:`n$body"
+                exit 1
+            }
         }
     }
 }
