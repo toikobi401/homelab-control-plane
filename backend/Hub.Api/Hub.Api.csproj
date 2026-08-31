@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <PropertyGroup>
+    <UserSecretsId>9391a905-b649-477b-baa7-533d801e7ad9</UserSecretsId>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Hub.Core\Hub.Core.csproj" />
     <ProjectReference Include="..\Hub.Data\Hub.Data.csproj" />
@@ -15,8 +19,7 @@
     <ItemGroup>
       <FrontendDist Include="$(MSBuildProjectDirectory)/../../frontend/dist/**/*" />
     </ItemGroup>
-    <Copy SourceFiles="@(FrontendDist)"
-          DestinationFolder="$(MSBuildProjectDirectory)/wwwroot/%(RecursiveDir)" />
+    <Copy SourceFiles="@(FrontendDist)" DestinationFolder="$(MSBuildProjectDirectory)/wwwroot/%(RecursiveDir)" />
   </Target>
 
   <ItemGroup>

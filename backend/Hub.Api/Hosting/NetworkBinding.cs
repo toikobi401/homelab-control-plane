@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography.X509Certificates;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
@@ -33,11 +34,23 @@ public enum BindMode
     Container
 }
 
+/// <summary>Chứng chỉ TLS kèm chuỗi trung gian gửi cho client.</summary>
+internal sealed record TlsCertificate(X509Certificate2 Leaf, X509Certificate2Collection Chain);
+
 public static class NetworkBinding
 {
     public const string ModeKey = "HUB_BIND_MODE";
     private const int ContainerPort = 8080;
-    private const int TailnetPort = 5000;
+
+    /// <summary>
+    /// Cùng cổng với profile localhost, để frontend và script không phải đổi
+    /// địa chỉ khi chuyển giữa hai chế độ.
+    /// </summary>
+    private const int TailnetPort = 7189;
+
+    /// <summary>Khoá cấu hình trỏ tới chứng chỉ `tailscale cert` cấp.</summary>
+    public const string CertificateKey = "HUB_TLS_CERT";
+    public const string CertificateKeyKey = "HUB_TLS_KEY";
 
     public static BindMode ResolveMode(IConfiguration configuration)
     {
@@ -79,13 +92,114 @@ public static class NetworkBinding
                         "Không tìm thấy địa chỉ tailnet trên card mạng Tailscale. Kiểm tra " +
                         "Tailscale đã chạy chưa: `tailscale status`. Xem CONTEXT.md §4.");
 
+                var certificate = LoadCertificate(builder.Configuration);
+
                 builder.WebHost.ConfigureKestrel(kestrel =>
-                    kestrel.Listen(address, TailnetPort));
+                    kestrel.Listen(address, TailnetPort, listen =>
+                    {
+                        // §4: HTTPS bắt buộc — không phải vì sợ nghe lén (tailnet
+                        // đã mã hoá) mà vì trình duyệt khoá SubtleCrypto, service
+                        // worker, clipboard API khi không có HTTPS. Cookie phiên
+                        // cũng đặt Secure nên qua HTTP thường sẽ không giữ được.
+                        if (certificate is not null)
+                        {
+                            listen.UseHttps(https =>
+                            {
+                                https.ServerCertificate = certificate.Leaf;
+
+                                // Gửi cả chuỗi trung gian: thiếu nó thì client
+                                // chưa tin root mới của Let's Encrypt sẽ báo
+                                // "unable to get local issuer certificate".
+                                https.ServerCertificateChain = certificate.Chain;
+                            });
+                        }
+                        else
+                        {
+                            // Chứng chỉ dev của `dotnet dev-certs`. Chỉ hợp lệ cho
+                            // tên "localhost", nên máy khác vào sẽ thấy cảnh báo —
+                            // dùng tạm cho tới khi có `tailscale cert`.
+                            listen.UseHttps();
+                        }
+                    }));
                 break;
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(mode), mode, "Chế độ bind lạ.");
         }
+    }
+
+    /// <summary>
+    /// Chứng chỉ do `tailscale cert` cấp, nếu có.
+    ///
+    /// §4: dùng chứng chỉ Let's Encrypt hợp lệ cho tên `.ts.net` — trình duyệt
+    /// tin ngay, không cảnh báo trên iPhone. KHÔNG dùng chứng chỉ tự ký: iOS bắt
+    /// cài profile thủ công và rất phiền.
+    ///
+    /// Chưa cấu hình thì trả null và người gọi rơi về chứng chỉ dev.
+    /// </summary>
+    private static TlsCertificate? LoadCertificate(IConfiguration configuration)
+    {
+        var certPath = configuration[CertificateKey];
+        var keyPath = configuration[CertificateKeyKey];
+
+        if (string.IsNullOrWhiteSpace(certPath) || string.IsNullOrWhiteSpace(keyPath))
+        {
+            return null;
+        }
+
+        if (!File.Exists(certPath) || !File.Exists(keyPath))
+        {
+            throw new InvalidOperationException(
+                $"Không tìm thấy chứng chỉ tại '{certPath}' hoặc khoá tại '{keyPath}'. " +
+                "Chạy `tailscale cert <tên-máy>.ts.net` hoặc bỏ HUB_TLS_CERT/HUB_TLS_KEY.");
+        }
+
+        // Nạp CẢ CHUỖI, không chỉ chứng chỉ lá.
+        //
+        // `tailscale cert` ghi ra 4 chứng chỉ: lá, trung gian YE1, Root YE, và
+        // ISRG Root X2. Cái cuối KHÔNG thừa: nó do ISRG Root X1 ký (root cũ, máy
+        // nào cũng tin), nên là cầu nối cho client chưa biết Root YE — root
+        // ECDSA mới của Let's Encrypt.
+        //
+        // Đã kiểm chứng bằng `openssl verify`: chuỗi 3 chứng chỉ thì thất bại
+        // với "unable to get local issuer certificate", đủ 4 thì OK.
+        var chain = new X509Certificate2Collection();
+        chain.ImportFromPemFile(certPath);
+
+        if (chain.Count == 0)
+        {
+            throw new InvalidOperationException($"Không đọc được chứng chỉ nào từ '{certPath}'.");
+        }
+
+        using var leaf = X509Certificate2.CreateFromPemFile(certPath, keyPath);
+
+        // Gộp trọn chuỗi vào MỘT file PFX thay vì dùng ServerCertificateChain:
+        // Kestrel tự lược các chứng chỉ nó coi là root khỏi chuỗi gửi đi, và
+        // ISRG Root X2 bị loại oan. Đưa qua PKCS#12 thì nó gửi nguyên vẹn.
+        var bundle = new X509Certificate2Collection { leaf };
+        for (var index = 1; index < chain.Count; index++)
+        {
+            bundle.Add(chain[index]);
+        }
+
+        var loaded = X509CertificateLoader.LoadPkcs12Collection(
+            bundle.Export(X509ContentType.Pfx)!, null);
+
+        // Chứng chỉ mang khoá riêng là chứng chỉ lá; phần còn lại là chuỗi.
+        var leafWithKey = loaded.FirstOrDefault(certificate => certificate.HasPrivateKey)
+            ?? throw new InvalidOperationException(
+                "Không tìm thấy chứng chỉ kèm khoá riêng sau khi nạp PKCS#12.");
+
+        var intermediates = new X509Certificate2Collection();
+        foreach (var certificate in loaded)
+        {
+            if (!ReferenceEquals(certificate, leafWithKey))
+            {
+                intermediates.Add(certificate);
+            }
+        }
+
+        return new TlsCertificate(leafWithKey, intermediates);
     }
 
     /// <summary>

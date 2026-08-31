@@ -1,11 +1,15 @@
 using Hub.Api.Authentication;
 using Hub.Api.Contracts;
+using Hub.Api.Devices;
 using Hub.Api.Hosting;
+using Hub.Api.Security;
 using Hub.Core.Abstractions;
 using Hub.Core.Authentication;
 using Hub.Core.Configuration;
+using Hub.Core.Devices;
 using Hub.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 // Docker healthcheck gọi lại chính binary này với --healthcheck, thay vì cài
 // curl vào ảnh runtime. Chạy trước khi dựng host: chỉ là một lần gọi HTTP rồi thoát.
@@ -44,12 +48,48 @@ builder.Services.Configure<AuthOptions>(
     builder.Configuration.GetSection(AuthOptions.SectionName));
 builder.Services.Configure<SetupOptions>(
     builder.Configuration.GetSection(SetupOptions.SectionName));
+builder.Services.Configure<TailscaleOptions>(
+    builder.Configuration.GetSection(TailscaleOptions.SectionName));
+builder.Services.Configure<AgentOptions>(
+    builder.Configuration.GetSection(AgentOptions.SectionName));
+builder.Services.Configure<MeshCentralOptions>(
+    builder.Configuration.GetSection(MeshCentralOptions.SectionName));
 
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<Hub.Core.Authentication.IPasswordHasher, IdentityPasswordHasher>();
 builder.Services.AddScoped<IAuthStore, EfAuthStore>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<LocalSetupPolicy>();
+builder.Services.AddScoped<AntiforgeryFilter>();
+
+// Năng lực 1 — đọc thiết bị từ Tailscale.
+// HttpClient qua factory, không new thủ công (§3: tránh cạn socket).
+builder.Services.AddHttpClient(TailscaleClient.HttpClientName, client =>
+{
+    // Tailscale ở ngoài tailnet nên có thể chậm; timeout để không treo request
+    // của người dùng (§5a quy tắc 6).
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+
+// Singleton: token dùng chung cho mọi request, hết hạn sau một giờ.
+builder.Services.AddSingleton<TailscaleTokenProvider>();
+builder.Services.AddSingleton<TailscaleClient>();
+
+// Cache đứng trước client thật — mọi chỗ khác chỉ thấy ITailnetClient.
+builder.Services.AddSingleton<ITailnetClient, CachedTailnetClient>();
+
+// Năng lực 6 — điều khiển nguồn máy từ xa (§5a).
+builder.Services.AddScoped<IDeviceStore, EfDeviceStore>();
+builder.Services.AddScoped<DeviceRegistryService>();
+builder.Services.AddScoped<DeviceControlService>();
+builder.Services.AddScoped<IAgentCommandSender, HttpAgentCommandSender>();
+
+builder.Services.AddHttpClient(HttpAgentCommandSender.HttpClientName, (provider, client) =>
+{
+    // §5a điều 6: agent không phản hồi thì báo lỗi rõ ràng, không treo giao diện.
+    var agentOptions = provider.GetRequiredService<IOptions<AgentOptions>>().Value;
+    client.Timeout = agentOptions.Timeout;
+});
 
 builder.Services.AddHubAuthentication();
 
@@ -68,12 +108,15 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// Tạo/nâng cấp schema lúc khởi động. Hệ thống một người dùng, một file SQLite —
-// không cần quy trình migration riêng ở giai đoạn này.
+// Nâng cấp schema lúc khởi động bằng EF migration.
+//
+// Trước đây dùng EnsureCreated: nó CHỈ tạo DB mới, không nâng cấp DB đã tồn tại.
+// Hệ quả là thêm bảng mới (Devices cho năng lực 6) thì DB cũ vẫn thiếu bảng và
+// chết lúc chạy với "no such table". Migration sửa đúng gốc vấn đề đó.
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<HubDbContext>();
-    await dbContext.Database.EnsureCreatedAsync();
+    await DatabaseInitializer.MigrateAsync(dbContext, app.Logger);
 }
 
 app.Logger.LogInformation(
@@ -115,7 +158,12 @@ app.MapGet("/health", () => TypedResults.Ok(new HealthResponse("ok", DateTimeOff
     .WithName("GetHealth")
     .WithSummary("Trạng thái sống của backend");
 
+app.MapAntiforgeryEndpoints();
 app.MapAuthEndpoints();
+app.MapDeviceEndpoints();
+app.MapMeshCentralEndpoints();
+app.MapDeviceRegistryEndpoints();
+app.MapDeviceControlEndpoints();
 
 // React Router điều hướng phía client: /devices không có file tương ứng trên đĩa.
 // Fallback trả index.html để router tự xử lý đường dẫn.
