@@ -1,0 +1,11 @@
+# Tham số mặc định cho mọi lệnh MSBuild chạy từ thư mục gốc repo.
+#
+# Vì sao cần: repo có cả Hub.slnx (định dạng .NET 10, dùng để build) lẫn Hub.sln
+# (định dạng cổ điển, giữ để mở được bằng Visual Studio đời cũ — xem PROGRESS.md §7).
+# Có hai file solution nên `dotnet build` không tự chọn được và báo lỗi MSB1011.
+#
+# Dòng dưới chỉ định Hub.slnx làm mặc định, để `dotnet build` và `dotnet test`
+# chạy được mà không phải gõ tên file.
+#
+# Lưu ý: thêm hoặc xoá project thì vẫn phải cập nhật CẢ HAI file solution.
+Hub.slnx
