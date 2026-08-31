@@ -102,18 +102,47 @@ cả hai cách — .NET tự nhận biết tiến trình có phải service hay 
 
 ### Đặt khoá chung trước khi cài
 
-Service chạy dưới tài khoản `LocalSystem`, **không thấy** biến môi trường của tài khoản bạn. Phải
-đặt ở cấp máy:
+Service chạy dưới `LocalSystem`, nên nó **không đọc được user-secrets** (user-secrets nằm trong hồ
+sơ người dùng của bạn) và **không thấy** biến môi trường của tài khoản bạn. Nó chỉ đọc được biến
+môi trường **cấp máy**.
+
+> ⚠️ **Đừng dán nguyên khối lệnh dưới đây.** Phải thay khoá thật vào trước. Dán nguyên si sẽ đặt
+> khoá thành chuỗi literal `<khoá>`, agent chạy bình thường nhưng **mọi lệnh điều khiển nguồn đều
+> bị từ chối 401** — và lỗi chỉ lộ ra lúc bấm nút, không phải lúc khởi động.
+
+Lấy khoá mà hub đang dùng:
 
 ```powershell
-# PowerShell với quyền Administrator
-[Environment]::SetEnvironmentVariable('Agent__SharedSecret', '<khoá>', 'Machine')
+cd backend\Hub.Api
+dotnet user-secrets list | Select-String 'Agent:SharedSecret'
+```
+
+Rồi đặt đúng giá trị đó ở cấp máy (PowerShell **quyền Administrator**):
+
+```powershell
+[Environment]::SetEnvironmentVariable('Agent__SharedSecret', 'DÁN_KHOÁ_THẬT_VÀO_ĐÂY', 'Machine')
 ```
 
 Dấu `__` (hai gạch dưới) là cách .NET ánh xạ `Agent:SharedSecret` sang biến môi trường.
 
-Bỏ qua bước này thì agent vẫn chạy nhưng **từ chối mọi lệnh** và ghi lỗi
-`Chưa cấu hình Agent:SharedSecret` vào Event Log.
+**Đổi biến môi trường thì phải khởi động lại service** — tiến trình chỉ đọc biến lúc khởi động:
+
+```powershell
+.\agent-service.ps1 restart
+```
+
+Kiểm chứng khoá đã đúng (chạy trên máy có hub, sau khi service chạy):
+
+```powershell
+# Không có khoá hoặc khoá sai → 401. Đúng khoá → 204 hoặc 501.
+$key = [Environment]::GetEnvironmentVariable('Agent__SharedSecret','Machine')
+Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://127.0.0.1:5199/agent/power `
+  -Headers @{ Authorization = "Bearer $key" } `
+  -ContentType 'application/json' -Body '{"action":"Lock"}'
+```
+
+Bỏ qua bước đặt khoá hoàn toàn thì agent ghi lỗi `Chưa cấu hình Agent:SharedSecret` vào Event Log và
+từ chối mọi lệnh bằng **503**.
 
 ### Cài, gỡ, xem trạng thái
 
