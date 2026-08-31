@@ -106,43 +106,40 @@ Service chạy dưới `LocalSystem`, nên nó **không đọc được user-sec
 sơ người dùng của bạn) và **không thấy** biến môi trường của tài khoản bạn. Nó chỉ đọc được biến
 môi trường **cấp máy**.
 
-> ⚠️ **Đừng dán nguyên khối lệnh dưới đây.** Phải thay khoá thật vào trước. Dán nguyên si sẽ đặt
-> khoá thành chuỗi literal `<khoá>`, agent chạy bình thường nhưng **mọi lệnh điều khiển nguồn đều
-> bị từ chối 401** — và lỗi chỉ lộ ra lúc bấm nút, không phải lúc khởi động.
-
-Lấy khoá mà hub đang dùng:
+**Không phải gõ hay dán khoá.** Script tự chép từ user-secrets của `Hub.Api` sang:
 
 ```powershell
-cd backend\Hub.Api
-dotnet user-secrets list | Select-String 'Agent:SharedSecret'
+# PowerShell với quyền Administrator
+cd scripts
+.\agent-service.ps1 set-secret
 ```
 
-Rồi đặt đúng giá trị đó ở cấp máy (PowerShell **quyền Administrator**):
+Lệnh này đọc `Agent:SharedSecret` từ user-secrets, ghi vào biến môi trường cấp máy
+`Agent__SharedSecret`, rồi tự khởi động lại service (tiến trình chỉ đọc biến lúc khởi động). Dấu
+`__` là cách .NET ánh xạ dấu `:` sang biến môi trường.
+
+> **Vì sao không đưa lệnh `SetEnvironmentVariable` để bạn tự điền khoá vào:** đã thử và hỏng hai
+> lần. Chỗ giữ chỗ trong khối lệnh bị dán nguyên si, khiến khoá thành một chuỗi vô nghĩa. Tệ hơn:
+> service vẫn **Running**, `/agent/health` vẫn **200**, Event Log vẫn sạch — sai sót chỉ lộ ra lúc
+> bấm nút tắt máy và nhận 401. Nên giờ script tự làm, không có gì để dán sai.
+
+Kiểm chứng khoá đã khớp:
 
 ```powershell
-[Environment]::SetEnvironmentVariable('Agent__SharedSecret', 'DÁN_KHOÁ_THẬT_VÀO_ĐÂY', 'Machine')
+.\agent-service.ps1 test-lock
 ```
 
-Dấu `__` (hai gạch dưới) là cách .NET ánh xạ `Agent:SharedSecret` sang biến môi trường.
+Lệnh này gửi một lệnh `Lock` thật tới agent. Chọn `Lock` vì nó nhẹ nhất trong nhóm A — **màn hình sẽ
+khoá**, mở lại bằng mật khẩu Windows, không tắt máy và không mất việc đang làm.
 
-**Đổi biến môi trường thì phải khởi động lại service** — tiến trình chỉ đọc biến lúc khởi động:
+| Kết quả | Nghĩa là |
+|---|---|
+| Màn hình khoá + `HTTP 204` | ✅ Khoá khớp, agent nhận lệnh |
+| `HTTP 401` | Khoá cấp máy khác khoá hub → chạy `set-secret` |
+| `HTTP 503` | Agent chưa thấy khoá nào → chạy `set-secret` |
+| Ký tự không hợp lệ | Đã dán nhầm chỗ giữ chỗ → chạy `set-secret` |
 
-```powershell
-.\agent-service.ps1 restart
-```
-
-Kiểm chứng khoá đã đúng (chạy trên máy có hub, sau khi service chạy):
-
-```powershell
-# Không có khoá hoặc khoá sai → 401. Đúng khoá → 204 hoặc 501.
-$key = [Environment]::GetEnvironmentVariable('Agent__SharedSecret','Machine')
-Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://127.0.0.1:5199/agent/power `
-  -Headers @{ Authorization = "Bearer $key" } `
-  -ContentType 'application/json' -Body '{"action":"Lock"}'
-```
-
-Bỏ qua bước đặt khoá hoàn toàn thì agent ghi lỗi `Chưa cấu hình Agent:SharedSecret` vào Event Log và
-từ chối mọi lệnh bằng **503**.
+Nếu hub chưa có khoá nào trong user-secrets, `set-secret` sẽ báo và chỉ cách sinh khoá mới.
 
 ### Cài, gỡ, xem trạng thái
 
@@ -150,10 +147,14 @@ từ chối mọi lệnh bằng **503**.
 # PowerShell với quyền Administrator
 cd scripts
 .\agent-service.ps1 install      # publish + đăng ký + khởi động
+.\agent-service.ps1 set-secret   # chép khoá từ user-secrets + restart
+.\agent-service.ps1 test-lock    # kiểm chứng khoá (không cần Administrator)
 .\agent-service.ps1 status       # xem trạng thái (không cần Administrator)
 .\agent-service.ps1 restart      # dùng sau khi đổi cấu hình
 .\agent-service.ps1 uninstall    # dừng và xoá service
 ```
+
+Lần đầu cài, chạy theo đúng thứ tự: **`install` → `set-secret` → `test-lock`**.
 
 `install` publish bản Release vào `C:\ProgramData\DeviceHub\Agent` — **không** chạy thẳng từ thư mục
 repo, vì repo có thể bị đổi nhánh hoặc xoá còn service thì trỏ vào một đường dẫn cố định. Đổi chỗ

@@ -10,10 +10,13 @@
     toàn máy.
 
 .PARAMETER Action
-    install   — publish agent rồi đăng ký service, đặt tự khởi động
-    uninstall — dừng và xoá service (không xoá file đã publish)
-    status    — xem service có tồn tại, đang chạy hay không
-    restart   — dừng rồi chạy lại, dùng sau khi cập nhật cấu hình
+    set-secret — chép khoá chung từ user-secrets của Hub.Api sang biến môi
+                 trường cấp máy, rồi khởi động lại service. Chạy cái này TRƯỚC
+                 khi install. Không phải gõ hay dán khoá.
+    install    — publish agent rồi đăng ký service, đặt tự khởi động
+    uninstall  — dừng và xoá service (không xoá file đã publish)
+    status     — xem service có tồn tại, đang chạy hay không
+    restart    — dừng rồi chạy lại, dùng sau khi cập nhật cấu hình
 
 .PARAMETER InstallPath
     Thư mục chứa bản publish. Mặc định C:\ProgramData\DeviceHub\Agent.
@@ -21,19 +24,21 @@
     service thì trỏ vào một đường dẫn cố định.
 
 .EXAMPLE
+    .\agent-service.ps1 set-secret
     .\agent-service.ps1 install
     .\agent-service.ps1 status
     .\agent-service.ps1 uninstall
 
 .NOTES
-    Khoá chung (Agent:SharedSecret) KHÔNG nằm trong script này. Đặt nó bằng
-    biến môi trường cấp máy trước khi cài — xem docs/agent-setup.md.
+    Khoá chung KHÔNG nằm trong script này và cũng không phải gõ tay: dùng
+    `set-secret` để chép thẳng từ user-secrets của Hub.Api sang biến môi trường
+    cấp máy. Xem docs/agent-setup.md.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('install', 'uninstall', 'status', 'restart')]
+    [ValidateSet('install', 'uninstall', 'status', 'restart', 'set-secret', 'test-lock')]
     [string]$Action,
 
     [string]$InstallPath = 'C:\ProgramData\DeviceHub\Agent'
@@ -57,8 +62,9 @@ function Get-AgentService {
     return Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 }
 
-# Mọi hành động trừ 'status' đều đổi trạng thái toàn máy.
-if ($Action -ne 'status' -and -not (Test-Admin)) {
+# 'status' và 'test-lock' chỉ đọc, không đổi gì ở cấp máy. Các hành động còn lại
+# đăng ký/gỡ service hoặc ghi biến môi trường Machine — đều cần Administrator.
+if ($Action -notin @('status', 'test-lock') -and -not (Test-Admin)) {
     Write-Error @"
 Cần quyền Administrator để '$Action'.
 
@@ -68,6 +74,68 @@ Mở PowerShell bằng "Run as administrator" rồi chạy lại.
 }
 
 switch ($Action) {
+
+    'set-secret' {
+        # Chép khoá thẳng từ user-secrets sang biến môi trường cấp máy.
+        # Không in khoá ra màn hình và không bắt người dùng gõ lại — gõ tay là
+        # nguồn sai lầm đã xảy ra thật (dán nguyên chỗ giữ chỗ trong hướng dẫn).
+        $apiProject = Join-Path $RepoRoot 'backend\Hub.Api\Hub.Api.csproj'
+        if (-not (Test-Path $apiProject)) {
+            Write-Error "Không tìm thấy $apiProject — chạy script từ trong repo."
+            exit 1
+        }
+
+        Write-Host "==> Đọc khoá từ user-secrets của Hub.Api..." -ForegroundColor Cyan
+
+        # user-secrets nằm trong hồ sơ NGƯỜI DÙNG. Nếu mở PowerShell bằng
+        # "Run as administrator" thì đây vẫn là hồ sơ của bạn, nên đọc được.
+        $secretsOutput = dotnet user-secrets list --project $apiProject 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Không đọc được user-secrets:`n$secretsOutput"
+            exit 1
+        }
+
+        $line = $secretsOutput | Where-Object { $_ -match '^Agent:SharedSecret\s*=\s*(.+)$' } | Select-Object -First 1
+        if (-not $line) {
+            Write-Error @"
+Không tìm thấy 'Agent:SharedSecret' trong user-secrets của Hub.Api.
+
+Hub chưa có khoá thì agent không thể khớp với nó. Sinh khoá mới:
+
+  cd backend\Hub.Api
+  dotnet user-secrets set "Agent:SharedSecret" "`$([Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Max 256 })))"
+"@
+            exit 1
+        }
+
+        $secret = ($line -replace '^Agent:SharedSecret\s*=\s*', '').Trim()
+
+        # Header HTTP chỉ nhận ASCII in được. Khoá có ký tự lạ (ví dụ chữ tiếng
+        # Việt do dán nhầm chỗ giữ chỗ) sẽ làm request hỏng trước khi gửi —
+        # bắt tại đây để lỗi hiện ra ngay, không phải lúc bấm nút tắt máy.
+        if ($secret -notmatch '^[\x21-\x7E]+$') {
+            Write-Error "Khoá trong user-secrets chứa ký tự không hợp lệ cho header HTTP. Sinh lại khoá mới."
+            exit 1
+        }
+
+        [Environment]::SetEnvironmentVariable('Agent__SharedSecret', $secret, 'Machine')
+
+        Write-Host "Đã đặt Agent__SharedSecret (scope Machine), $($secret.Length) ký tự." -ForegroundColor Green
+
+        # Tiến trình chỉ đọc biến môi trường lúc khởi động.
+        if (Get-AgentService) {
+            Write-Host "==> Khởi động lại service để nhận khoá mới..." -ForegroundColor Cyan
+            Restart-Service -Name $ServiceName -Force
+            Write-Host "Trạng thái: $((Get-AgentService).Status)" -ForegroundColor Green
+        }
+        else {
+            Write-Host "Service chưa cài — cài bằng: .\agent-service.ps1 install" -ForegroundColor Yellow
+        }
+
+        Write-Host ""
+        Write-Host "Kiểm chứng khoá đã khớp:" -ForegroundColor Yellow
+        Write-Host "  .\agent-service.ps1 test-lock"
+    }
 
     'status' {
         $service = Get-AgentService
@@ -176,5 +244,64 @@ switch ($Action) {
 
         Restart-Service -Name $ServiceName -Force
         Write-Host "Đã khởi động lại. Trạng thái: $((Get-AgentService).Status)" -ForegroundColor Green
+    }
+
+    'test-lock' {
+        # Kiểm chứng khoá bằng một lệnh thật. Chọn 'Lock' vì nó là hành động
+        # nhẹ nhất trong nhóm A: khoá màn hình, mở lại bằng mật khẩu Windows —
+        # không tắt máy, không mất việc đang làm.
+        $key = [Environment]::GetEnvironmentVariable('Agent__SharedSecret', 'Machine')
+        if ([string]::IsNullOrWhiteSpace($key)) {
+            Write-Error "Chưa đặt Agent__SharedSecret. Chạy: .\agent-service.ps1 set-secret"
+            exit 1
+        }
+
+        if ($key -notmatch '^[\x21-\x7E]+$') {
+            Write-Error @"
+Khoá chứa ký tự không hợp lệ cho header HTTP (dài $($key.Length) ký tự).
+
+Gần như chắc chắn là đã dán nhầm chỗ giữ chỗ trong hướng dẫn. Sửa bằng:
+  .\agent-service.ps1 set-secret
+"@
+            exit 1
+        }
+
+        Write-Host "Gửi lệnh Lock tới agent... (màn hình sẽ khoá nếu khoá đúng)" -ForegroundColor Cyan
+
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Method Post `
+                -Uri 'http://127.0.0.1:5199/agent/power' `
+                -Headers @{ Authorization = "Bearer $key" } `
+                -ContentType 'application/json' `
+                -Body '{"action":"Lock"}' `
+                -TimeoutSec 10
+
+            Write-Host ""
+            Write-Host "HTTP $($response.StatusCode) — khoá KHỚP. Agent nhận lệnh." -ForegroundColor Green
+        }
+        catch {
+            $status = $_.Exception.Response.StatusCode.value__
+
+            switch ($status) {
+                401 {
+                    Write-Error @"
+HTTP 401 — khoá KHÔNG khớp.
+
+Biến môi trường cấp máy khác với khoá hub đang dùng. Sửa bằng:
+  .\agent-service.ps1 set-secret
+"@
+                }
+                503 {
+                    Write-Error "HTTP 503 — agent chưa thấy khoá nào. Chạy: .\agent-service.ps1 set-secret"
+                }
+                501 {
+                    Write-Host "HTTP 501 — khoá KHỚP, nhưng máy này không phải Windows." -ForegroundColor Green
+                }
+                default {
+                    Write-Error "Không gọi được agent: $($_.Exception.Message)`n`nAgent có đang chạy không? .\agent-service.ps1 status"
+                }
+            }
+            if ($status -ne 501) { exit 1 }
+        }
     }
 }
