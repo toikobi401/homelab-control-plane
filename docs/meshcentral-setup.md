@@ -291,6 +291,154 @@ Các cờ quyền (kiểm chứng bằng `meshctrl help AddUserToDeviceGroup`):
 
 **Cách kiểm chứng:** đăng nhập bằng `hubuser`, chọn một máy — không được thấy tab *Terminal*.
 
+## Máy NGOÀI tailnet: phải khai `agentaliasdns`
+
+Mặc định MeshCentral ghi vào agent địa chỉ lấy từ khoá `cert` — tức **tên tailnet**
+(`wss://hub.tailnet-example.ts.net:4430/agent.ashx`).
+
+Tên MagicDNS **chỉ phân giải được từ máy đã cài Tailscale**. Máy ngoài tailnet cài agent xong sẽ
+thấy `Current Agent Status: RUNNING` nhưng **không bao giờ xuất hiện trong danh sách** — nó không
+tìm thấy server để kết nối.
+
+Triệu chứng dễ nhầm: agent báo RUNNING, Server URL trông đúng, không có lỗi nào hiện ra.
+
+Sửa bằng cách khai tên miền công khai cho agent:
+
+```json
+"agentaliasdns": "mesh.tenmien-cua-ban.com",
+"agentaliasport": 443
+```
+
+- **`agentaliasdns`** — tên agent sẽ gọi tới, thay cho tên tailnet.
+- **`agentaliasport`: 443** chứ không phải 4430. Qua Cloudflare Tunnel thì client gọi cổng HTTPS
+  chuẩn; tunnel mới chuyển tiếp về 4430 bên trong.
+
+Máy **trong** tailnet vẫn dùng được bình thường — tunnel trỏ về chính cổng agent đang nghe.
+
+⚠️ **Phải tải lại agent sau khi đổi.** File cài đặt nhúng địa chỉ server vào bên trong, nên bản đã
+tải trước đó vẫn mang tên cũ. MeshCentral ký lại các file agent lúc khởi động (mất ~30 giây).
+
+## Hai đường kết nối: tailnet và Cloudflare
+
+Hub có hai lối vào MeshCentral, và agent nên đi lối gần nhất:
+
+| Máy | Đường | Vì sao |
+|---|---|---|
+| Đã vào tailnet | `wss://hub.tailnet-example.ts.net:4430` | Đường thẳng, không ra Internet |
+| Chưa vào tailnet | `wss://mesh.tenmien-cua-ban.com:443` | Lối duy nhất tới được |
+
+MeshCentral **chỉ sinh được một địa chỉ** cho mọi agent — địa chỉ công khai
+(`agentaliasdns`). Máy trong tailnet vì thế vẫn đi vòng ra Internet rồi quay lại.
+
+### Cách dùng
+
+```powershell
+.\scripts\mesh-agent-route.ps1 detect   # xem máy này nên đi đường nào
+.\scripts\mesh-agent-route.ps1 apply    # ghi vào .msh (cần Administrator)
+.\scripts\mesh-agent-route.ps1 status   # đang trỏ đâu
+```
+
+Chạy `apply` **sau khi cài agent**, và chạy lại mỗi khi máy đổi mạng (vào tailnet
+lần đầu, hoặc rời tailnet). Địa chỉ đã ghi là cố định cho tới lần chạy sau.
+
+Ép một đường cụ thể khi cần:
+
+```powershell
+.\scripts\mesh-agent-route.ps1 apply -Force cloudflare
+```
+
+### Vì sao dò bằng kết nối thật, không chỉ hỏi `tailscale status`
+
+Script kiểm tra ba bước và dừng ngay khi bước nào hỏng:
+
+1. Tailscale đang chạy chưa
+2. Tên MagicDNS phân giải được không
+3. **Cổng 4430 có thật sự mở không**
+
+Bước 3 là bước quan trọng. Tailscale chạy và DNS phân giải được vẫn có thể không
+tới nơi — server tắt, ACL chặn, máy vừa đổi mạng. Tin vào trạng thái thay vì kết
+quả sẽ khoá máy vào một đường chết, mà agent thì **im lặng không báo gì**.
+
+### Vì sao KHÔNG khai cả hai địa chỉ
+
+MeshAgent có nhận danh sách ngăn cách bằng dấu phẩy:
+
+```
+MeshServer=wss://a...,wss://b...
+ServerID=<hash-a>,<hash-b>
+```
+
+Nhưng nó **bốc ngẫu nhiên**, không ưu tiên — `agentcore.c` dòng 3894:
+
+```c
+util_random(4, (char*)&rval);
+agent->serverIndex = (rval % rs->NumResults) + 1;
+```
+
+Máy trong tailnet vẫn qua Cloudflare khoảng một nửa số lần. Đó là cân bằng tải,
+không phải "ưu tiên đường gần". Thêm nữa `ServerID` phải khai đúng số phần tử,
+lệch là agent bỏ kết nối với `ServerID Count Mismatch`.
+
+Cơ chế này cũng **không có trong tài liệu chính thức** — MeshAgent readme không
+liệt kê `MeshServer` trong bảng thiết lập, và các yêu cầu tính năng failover
+([#5831](https://github.com/Ylianst/MeshCentral/issues/5831),
+[#3208](https://github.com/Ylianst/MeshCentral/issues/3208)) đều bị đóng "not
+planned". Dựa vào hành vi không được ghi nhận là chấp nhận rủi ro nó biến mất sau
+một bản cập nhật.
+
+⚠️ **`agentupdate` ghi đè `.msh`** bằng bản nhúng trong exe. Sau khi cập nhật
+agent, chạy lại `apply`.
+
+## Lỗi "Agent bad web cert hash" — agent RUNNING nhưng máy không hiện
+
+Sau khi khai `agentaliasdns`, agent kết nối được nhưng vẫn **không xuất hiện trong danh sách**. Log
+server (không phải log agent) cho biết lý do:
+
+```
+Agent bad web cert hash (Agent:4b49221c5d != Server:790f626271 or 8d1e621958), holding connection
+```
+
+Agent kiểm tra hash chứng chỉ của server để **chống man-in-the-middle**. Qua Cloudflare Tunnel, agent
+thấy chứng chỉ của **Google Trust Services** (Cloudflare cấp), còn MeshCentral mong đợi chứng chỉ tự
+sinh của chính nó — hai hash khác nhau nên nó giữ kết nối lại.
+
+Kiểm chứng khác biệt:
+
+```bash
+# Qua tunnel — chứng chỉ Cloudflare
+openssl s_client -connect mesh.tenmien-cua-ban.com:443 | openssl x509 -noout -issuer
+# issuer=C=US, O=Google Trust Services, CN=WE1
+
+# Qua tailnet — chứng chỉ MeshCentral tự sinh
+openssl s_client -connect 100.100.100.100:4430 | openssl x509 -noout -issuer
+# issuer=CN=MeshCentralRoot-8aeaa7
+```
+
+### Cách sửa: giới hạn theo IP, KHÔNG tắt hoàn toàn
+
+```json
+"ignoreagenthashcheck": ["100.100.100.100"]
+```
+
+Khoá này nhận **danh sách IP**, không chỉ `true`. Chỉ bỏ qua kiểm tra cho địa chỉ mà `cloudflared`
+chuyển tiếp vào — mọi đường khác vẫn giữ nguyên lớp chống man-in-the-middle.
+
+⚠️ **Không đặt `"ignoreagenthashcheck": true`.** Nó tắt kiểm tra cho **mọi** agent, kể cả kết nối
+trực tiếp — bỏ hẳn một lớp bảo vệ để sửa một trường hợp.
+
+### Đã thử và KHÔNG dùng được: `certurl`
+
+MeshCentral có khoá `certurl` để khai chứng chỉ thật khi chạy sau proxy. Nhưng nó dùng
+`domains[].dns` làm host để kiểm tra, mà khai `dns` ở domain mặc định lại đổi cách định tuyến của cả
+server. Thử thì báo:
+
+```
+Failed to load web certificate at: "https://mesh...:443", host: "hub.tailnet-example.ts.net"
+```
+
+Nó gọi tên miền công khai nhưng kiểm tra host tailnet. `ignoreagenthashcheck` giới hạn IP đơn giản
+hơn và không đụng vào định tuyến.
+
 ## Cài agent lên từng máy
 
 Trong giao diện MeshCentral: chọn device group → **Add Agent** → tải installer → chạy trên máy đích.
