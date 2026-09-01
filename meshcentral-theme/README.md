@@ -11,15 +11,27 @@ khi nhúng ở tab **Điều khiển**.
 .\deploy.ps1 -Remove               # gỡ, về diện mạo gốc
 ```
 
-Sau đó **bắt buộc** khởi động lại MeshCentral — nó chốt danh sách file web lúc
-khởi động, không đọc lại theo từng request:
+**Không cần khởi động lại MeshCentral** — file tĩnh đọc theo từng request.
 
-```powershell
-# PowerShell quyền admin
-Restart-Service "meshcentral.exe"
+### Nhưng PHẢI xoá cache trình duyệt
+
+MeshCentral gửi `Cache-Control: max-age=14400` cho `custom.css`, nên trình duyệt
+giữ bản cũ **4 tiếng**. Không ép nạp lại thì trông y hệt như theme không có tác
+dụng — đây là bẫy đã làm mất thời gian một lần.
+
+```
+Ctrl + Shift + R
 ```
 
-Rồi tải lại trang bằng `Ctrl+Shift+R` để bỏ qua cache trình duyệt.
+Hoặc DevTools → Network → tick *Disable cache* → F5.
+
+**Cách kiểm chứng theme đã vào chưa** (dán vào Console):
+
+```js
+[...document.styleSheets].find(s => (s.href||'').includes('custom.css')).cssRules.length
+```
+
+Ra `0` là đang dùng bản cache. Ra số lớn hơn 0 là theme đã hoạt động.
 
 ## Cách nó hoạt động
 
@@ -27,13 +39,24 @@ MeshCentral **luôn nạp** `styles/custom.css` và `scripts/custom.js` trong m�
 trang, và `custom.css` là stylesheet **cuối cùng** trong `<head>` — cả hai điều
 này đo được bằng trình duyệt thật, không phải suy đoán từ tài liệu.
 
-Nhờ vậy:
+Nhờ vậy ta thắng về độ ưu tiên CSS mà gần như không cần `!important`.
 
-- Ta thắng về độ ưu tiên CSS mà gần như không cần `!important`.
-- **Không sửa gì trong `node_modules`**, nên `npm update` không xoá mất theme.
+Hai file này trong `node_modules/meshcentral/public/` vốn **rỗng** — chúng sinh
+ra để người dùng ghi đè.
 
-File được đặt ở `meshcentral-web/public/` — thư mục override chính thức của
-MeshCentral, được ưu tiên hơn `node_modules`.
+### Vì sao không dùng `meshcentral-web/`
+
+Đó là thư mục override chính thức, và lẽ ra là chỗ đúng. Nhưng **nó không hoạt
+động trên cài đặt này** — đã kiểm chứng: đặt một file thử vào
+`meshcentral-web/public/styles/` rồi gọi qua HTTP thì server trả **404**, dù
+đường dẫn, quyền đọc và thứ tự middleware đều đúng.
+
+Nghi do service chạy từ `WinService\daemon\meshcentral.exe` nên `__dirname` mà
+MeshCentral dùng để dò override lệch khỏi chỗ ta đặt file.
+
+**Đánh đổi:** `npm update meshcentral` sẽ ghi đè hai file. Chạy lại `deploy.ps1`
+sau mỗi lần cập nhật. Script tự lưu bản gốc (`.orig`) lần đầu nên `-Remove` trả
+về đúng nguyên trạng.
 
 ### Vì sao không phải `sitestyle: 4`
 
@@ -55,6 +78,8 @@ Không đổi bố cục, không ẩn nút, không chạm hành vi. Hỏng thì 
 
 ## Những gì đã đo trên trang thật
 
+**Trang chính** (dùng `style-bootstrap.css`):
+
 | Phần tử | Trước | Sau |
 |---|---|---|
 | `#page_leftbar` | `linear-gradient(#104893 → #113962)` | `#171717` |
@@ -63,9 +88,25 @@ Không đổi bố cục, không ẩn nút, không chạm hành vi. Hỏng thì 
 | `--bs-border-radius` | `0.375rem` | `10px` |
 | Font | `system-ui` | Inter |
 
-**Bẫy đã gặp:** sidebar là `#page_leftbar`, **không phải** `#topbar` như tên gợi
-ý; và nó dùng `background-image: linear-gradient`, nên đặt `background-color`
-không có tác dụng — phải ghi đè `background` (thuộc tính gộp).
+**Trang đăng nhập** (dùng `style.css` — Classic, KHÔNG có Bootstrap):
+
+| Phần tử | Trước | Sau |
+|---|---|---|
+| `body.login` | gradient xanh | `#0a0a0a` |
+| `#backgroundImage` | `welcome.png` | ẩn |
+| `#loginpanel` | `rgb(151,151,151)` | `#171717` viền mảnh |
+| `#username`, `#password` | `rgb(255,248,204)` vàng | `#0a0a0a` |
+
+### Ba bẫy đã gặp
+
+1. **Sidebar là `#page_leftbar`**, không phải `#topbar` như tên gợi ý.
+2. **Nó dùng `background-image: linear-gradient`** — đặt `background-color`
+   không có tác dụng, phải ghi đè `background` (thuộc tính gộp).
+3. **Trang đăng nhập không nạp Bootstrap.** Nó dùng `style.css` (Classic), nên
+   mọi biến `--bs-*` vô tác dụng ở đó — phải nhắm thẳng từng id.
+
+Cả ba đều tìm ra bằng cách quét `getComputedStyle` trên trang thật, không phải
+đọc tài liệu hay đoán từ tên phần tử.
 
 ## Giới hạn đã biết
 

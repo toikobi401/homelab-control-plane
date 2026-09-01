@@ -288,23 +288,73 @@ textarea:focus,
 /* ── Trang đăng nhập ──────────────────────────────────────────────────────── */
 
 /*
- * Trang login dùng template riêng (login2.handlebars), không phải default3 —
- * nên phải nhắm riêng. Đây là màn hình đầu tiên người dùng thấy.
+ * Trang login dùng template RIÊNG và nạp `style.css` (Classic), KHÔNG nạp
+ * `style-bootstrap.css`. Nghĩa là mọi biến `--bs-*` ở trên không có tác dụng ở
+ * đây — phải nhắm thẳng từng id. Đo bằng getComputedStyle trên trang thật.
  */
-body.login,
-body.login2,
-.login-container,
-#loginpanel {
+body.login {
   background: var(--hub-bg) !important;
   background-image: none !important;
 }
 
+/*
+ * Ảnh nền `welcome.png` — hình máy chủ vẽ kiểu 2010, thứ khiến trang login lạc
+ * lõng nhất. Ẩn thay vì đổi: ta không có ảnh thay thế, và nền phẳng hợp với
+ * ngôn ngữ thiết kế của hub hơn.
+ */
+#backgroundImage {
+  display: none !important;
+}
+
+/* Thẻ đăng nhập: nền xám #979797 → thẻ tối viền mảnh như hub. */
+#loginpanel,
 #centralTable,
 .centralTable {
-  background-color: var(--hub-card);
+  background: var(--hub-card) !important;
   border: 1px solid var(--hub-border);
   border-radius: var(--hub-radius);
   box-shadow: none;
+}
+
+/*
+ * Ô nhập vàng nhạt `rgb(255,248,204)` là dấu hiệu dễ nhận nhất của MeshCentral
+ * đời cũ. Trang login đặt màu bằng id nên phải thắng bằng id.
+ */
+#username,
+#password {
+  background: var(--hub-bg) !important;
+  border: 1px solid var(--hub-border) !important;
+  border-radius: var(--hub-radius-sm);
+  color: var(--hub-fg) !important;
+  padding: 8px 10px;
+}
+
+#username:focus,
+#password:focus {
+  border-color: var(--hub-muted-fg) !important;
+  outline: none;
+}
+
+#loginButton,
+#tokenButton,
+#resetButton {
+  background: var(--hub-primary) !important;
+  border: none !important;
+  border-radius: var(--hub-radius-sm);
+  color: var(--hub-primary-fg) !important;
+  font-weight: 500;
+  padding: 8px 12px;
+}
+
+#loginButton:hover {
+  background: #ffffff !important;
+}
+
+/* Tiêu đề "Hub / Thiết bị" phía trên thẻ đăng nhập. */
+body.login .title,
+body.login .title2 {
+  color: var(--hub-fg) !important;
+  text-shadow: none !important;
 }
 
 /* ── Thanh cuộn ───────────────────────────────────────────────────────────── */
