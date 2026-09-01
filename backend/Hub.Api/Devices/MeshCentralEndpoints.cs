@@ -24,14 +24,38 @@ public static class MeshCentralEndpoints
         return builder;
     }
 
-    private static Ok<MeshCentralConfigDto> GetConfig(IOptions<MeshCentralOptions> options)
+    private static Ok<MeshCentralConfigDto> GetConfig(
+        HttpContext httpContext,
+        IOptions<MeshCentralOptions> options)
     {
         var settings = options.Value;
 
-        return TypedResults.Ok(new MeshCentralConfigDto(
-            settings.IsConfigured,
-            settings.Url));
+        // Chọn địa chỉ theo lối vào: tên MagicDNS chỉ phân giải được từ thiết bị
+        // trong tailnet, nên trả nó cho người vào qua Internet công khai là đưa
+        // một địa chỉ chắc chắn hỏng.
+        var url = settings.ResolveUrl(IsTailnetRequest(httpContext));
+
+        return TypedResults.Ok(new MeshCentralConfigDto(settings.IsConfigured, url));
+    }
+
+    /// <summary>
+    /// Request có đi qua tailnet không, suy từ Host mà trình duyệt gọi tới.
+    ///
+    /// Dùng Host chứ không dùng địa chỉ IP của client: sau Cloudflare Tunnel mọi
+    /// request đều đến từ loopback, nên IP không phân biệt được lối vào. Host thì
+    /// giữ nguyên đúng cái người dùng gõ — và đó cũng chính là thứ quyết định
+    /// trình duyệt của họ phân giải được tên nào.
+    /// </summary>
+    private static bool IsTailnetRequest(HttpContext httpContext)
+    {
+        var host = httpContext.Request.Host.Host;
+
+        return host.EndsWith(".ts.net", StringComparison.OrdinalIgnoreCase)
+            || host.StartsWith("100.", StringComparison.Ordinal)
+            || host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
     }
 }
 
+/// <param name="Configured">Đã khai địa chỉ MeshCentral chưa.</param>
+/// <param name="Url">Địa chỉ hợp với lối vào hiện tại — dùng cho iframe.</param>
 public sealed record MeshCentralConfigDto(bool Configured, string? Url);

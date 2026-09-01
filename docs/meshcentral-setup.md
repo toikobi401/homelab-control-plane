@@ -117,11 +117,39 @@ node node_modules/meshcentral --install
 
 ## Khai địa chỉ cho hub
 
+Hub cần **hai** địa chỉ, không phải một:
+
 ```bash
+# Địa chỉ trong tailnet — dùng khi mở hub qua MagicDNS hoặc 100.x
 dotnet user-secrets --project backend/Hub.Api set "MeshCentral:Url" "https://hub.tailnet-example.ts.net:4430"
+
+# Địa chỉ công khai — dùng khi mở hub qua domain Internet
+dotnet user-secrets --project backend/Hub.Api set "MeshCentral:PublicUrl" "https://mesh.youtubecontentgen.io.vn"
 ```
 
-Hoặc biến môi trường khi chạy thật: `MeshCentral__Url`.
+Biến môi trường khi chạy thật: `MeshCentral__Url` và `MeshCentral__PublicUrl`.
+
+### Vì sao phải khai cả hai
+
+Tên MagicDNS (`*.ts.net`) **chỉ phân giải được từ thiết bị đã cài Tailscale**. Mở hub qua
+domain công khai rồi nhúng địa chỉ tailnet thì trình duyệt báo:
+
+> Không thể tìm thấy địa chỉ IP của máy chủ hub.tailnet-example.ts.net.
+
+Đã gặp thật trên `hub.youtubecontentgen.io.vn/remote`. Backend chọn địa chỉ theo **Host của
+request** (`MeshCentralOptions.ResolveUrl`): vào qua `.ts.net`/`100.x`/`localhost` thì dùng
+`Url`, vào qua đường nào khác thì dùng `PublicUrl`. Thiếu cái nào thì rơi về cái còn lại.
+
+Dùng Host chứ không dùng IP client vì sau Cloudflare Tunnel mọi request đều đến từ loopback —
+IP không phân biệt được lối vào, còn Host thì giữ nguyên cái người dùng gõ.
+
+### Địa chỉ công khai còn giải quyết chuyện chứng chỉ
+
+Chứng chỉ tự ký của MeshCentral khiến trình duyệt chặn iframe **mà không hỏi gì** — chỉ hiện
+khung trắng. Domain công khai đi qua Cloudflare nên có chứng chỉ hợp lệ, không dính lỗi đó.
+
+Dù dùng địa chỉ nào, MeshCentral vẫn phải khai `frame-ancestors` cho origin của hub — xem
+mục CSP bên dưới.
 
 ⚠️ Phải là địa chỉ **trình duyệt của người dùng** gọi tới được — iframe chạy trên máy họ, không phải
 trên máy chạy hub. Dùng `localhost` thì điện thoại không mở được.
