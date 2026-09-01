@@ -22,12 +22,12 @@ Năm năng lực, theo thứ tự xây dựng:
 
 | # | Năng lực | Trạng thái |
 |---|---|---|
-| 1 | Sổ đăng ký thiết bị + hiện diện (online/offline, lần cuối thấy) | Chưa bắt đầu |
+| 1 | Sổ đăng ký thiết bị + hiện diện (online/offline, lần cuối thấy) | ✅ Xong — đọc từ Tailscale |
 | 2 | Duyệt và truyền file giữa các thiết bị | **Giao cho MeshCentral** — không tự xây (§2.3) |
 | 3 | Sao lưu lên cloud storage, sau đó lên NAS cá nhân | Chưa bắt đầu |
-| 4 | Điều khiển màn hình từ xa vào PC/laptop Windows | Chưa bắt đầu |
+| 4 | Điều khiển màn hình từ xa vào PC/laptop Windows | **Giao cho MeshCentral** |
 | 5 | Đọc truyện tranh qua API công khai (MangaDex, …) | Chưa bắt đầu |
-| 6 | Tắt, mở, khởi động lại máy từ xa (đánh thức qua waker — §5a.1) | Chưa bắt đầu |
+| 6 | Tắt, mở, khởi động lại máy từ xa (đánh thức qua waker — §5a.1) | **Giao cho MeshCentral** |
 | 7 | Xem phim từ kho công cộng (Internet Archive) | Chưa bắt đầu |
 
 Các năng lực 2, 3, 4, 6 phụ thuộc vào lớp transport và xác thực của năng lực 1. Không làm sai thứ tự.
@@ -140,17 +140,23 @@ chứng. Bất kỳ PR nào bắt đầu viết lại một mục ở cột bên
 - Frontend được build ra file tĩnh và **do chính backend .NET phục vụ**. Không dựng web server thứ
   hai (nginx/IIS) chỉ để phục vụ file tĩnh.
 
-### Agent trên máy desktop
+### Agent trên máy desktop — đã bỏ (2026-09-01)
 
-Backend chạy trên PC. Laptop vẫn cần một thành phần nhỏ để báo danh và nhận lệnh.
+**Hub không còn agent tự viết.** `Hub.Agent` và `Hub.Windows` đã bị xoá khỏi solution.
 
-- **Cùng codebase .NET**, chạy ở chế độ agent. Không phải dự án riêng, không phải ngôn ngữ khác.
-- Nhiệm vụ hẹp: báo tín hiệu sống và báo thông tin máy.
-- **Không còn phục vụ năng lực 2 và 6.** MeshCentral có agent riêng lo điều khiển nguồn,
-  Wake-on-LAN, điều khiển màn hình, và duyệt/truyền file (§2.3). Agent tự viết chỉ còn phần
-  hub thật sự cần mà MeshCentral không cấp.
-- **Không có UI.** Agent là service chạy nền.
-- Máy nào chạy backend thì cũng tự đóng vai agent của chính nó — không chạy hai process trên PC.
+Agent tự viết ra đời để phục vụ năng lực 2 (SFTP) và năng lực 6 (điều khiển nguồn). Cả hai nay
+giao cho **MeshCentral**, thứ đã có agent đóng gói sẵn cho Windows/Linux/macOS làm đủ những việc
+đó cộng thêm Wake-on-LAN và điều khiển màn hình. Giữ agent riêng là bảo trì hai thứ cùng làm một
+việc — đúng điều §2.3 cấm.
+
+Hệ quả kèm theo, đều là điều tốt:
+
+- `Hub.Core` không còn phụ thuộc gì vào Windows — hợp §3.3 (chuẩn bị chuyển sang NAS).
+- Bớt một đường tấn công: hub không còn endpoint nào đổi trạng thái vật lý của máy.
+
+**Nếu sau này cần thông tin máy mà MeshCentral không cấp** (ví dụ nhãn LAN cho một năng lực mới):
+cân nhắc đọc từ API của MeshCentral trước, chỉ dựng agent riêng khi đã chắc là không có đường nào
+khác.
 
 ### 3.3. Chuẩn bị cho việc chuyển sang NAS
 
@@ -176,8 +182,6 @@ là thứ cho phép backend chuyển sang NAS mà không phải viết lại.
   /Hub.Api                ASP.NET Core: endpoint, xác thực, phục vụ file tĩnh
   /Hub.Core               Logic nghiệp vụ, model, interface — KHÔNG phụ thuộc Windows
   /Hub.Data               EF Core, SQLite, migration
-  /Hub.Windows            Hiện thực riêng cho Windows (đứng sau interface của Core)
-  /Hub.Agent              Service chạy trên máy desktop
   /Hub.Manga              Client MangaDex — cô lập, xem §5
   /Hub.Video              Client Internet Archive — cô lập, xem §5b
 /frontend               Ứng dụng React + Vite
@@ -192,7 +196,7 @@ là thứ cho phép backend chuyển sang NAS mà không phải viết lại.
 ```
 
 **Luật phụ thuộc:** `Hub.Core` không phụ thuộc vào gì cả (không Windows, không EF, không ASP.NET).
-`Hub.Api` phụ thuộc Core/Data. `Hub.Windows` hiện thực interface của Core. Không có chiều ngược lại.
+`Hub.Api` phụ thuộc Core/Data. Không có chiều ngược lại.
 
 ### Kiểu dữ liệu dùng chung giữa .NET và TypeScript
 
@@ -332,7 +336,7 @@ và xử lý bằng cách **cô lập nó triệt để** thay vì giả vờ n�
 Quy tắc cô lập, bắt buộc:
 
 - Toàn bộ code backend nằm trong `Hub.Manga`, frontend nằm trong `/src/features/manga`.
-- **`Hub.Manga` không được phụ thuộc vào `Hub.Agent` hay `Hub.Windows`.** Nó chỉ gọi ra Internet.
+- **`Hub.Manga` không được phụ thuộc vào bất cứ project nào khác ngoài `Hub.Core`.** Nó chỉ gọi ra Internet.
 - **Không** dùng chung `HttpClient` đã cấu hình với phần tailnet. Client riêng, `User-Agent` riêng.
 - **Không** đặt DTO của truyện chung với DTO thiết bị.
 - Xoá bỏ toàn bộ năng lực 5 phải là việc xoá một project, một thư mục frontend, và một mục
@@ -440,71 +444,26 @@ Nếu hệ thống này bao giờ rời khỏi phạm vi "chỉ mình tôi dùng
 
 ---
 
-## 5a. Năng lực 6 — Tắt, mở, khởi động lại máy từ xa
+## 5a. Năng lực 6 — Điều khiển máy từ xa
 
-### Phạm vi — đóng, và cố tình giữ nhỏ
+**Giao cho MeshCentral (2026-09-01).** Hub không tự viết phần này nữa.
 
-Chỉ điều khiển nguồn. Tập hợp hành động **đóng**, không mở rộng:
+Trước đây §5a mô tả một hệ thống tự làm: agent .NET trên mỗi máy, sổ đăng ký thiết bị, bốn
+endpoint điều khiển nguồn, nhật ký kiểm toán. Toàn bộ đã bị xoá — MeshCentral có sẵn agent
+đóng gói cho Windows/Linux/macOS làm đủ những việc đó, cộng thêm Wake-on-LAN, điều khiển màn
+hình và truyền file. Giữ cả hai là bảo trì hai thứ cùng làm một việc (§2.3).
 
-| Hành động | Điều kiện |
-|---|---|
-| Shutdown | Máy đích đang online |
-| Restart | Máy đích đang online |
-| Sleep | Máy đích đang online |
-| Lock | Máy đích đang online |
-| Wake | Máy đích **offline**, có một thiết bị khác cùng LAN đang online làm "người đánh thức" (§5a.1) |
+Hub giữ vai **control plane và UI**: đăng nhập (§6), điều hướng, và nhúng MeshCentral ở
+`/remote`. Xem `docs/meshcentral-setup.md`.
 
-**Không có chạy lệnh shell.** Đã cân nhắc và **bỏ hẳn** — xem hộp dưới. Đây là quyết định làm giảm
-rủi ro lớn nhất của toàn dự án.
+### Những ràng buộc vẫn còn giá trị
 
-> **Không thêm endpoint chạy lệnh tuỳ ý vào hệ thống này.**
->
-> Phương án đó đã được xét và loại bỏ ngày 2026-08-29. Nếu về sau xuất hiện nhu cầu "chỉ chạy một
-> lệnh nhỏ thôi", câu trả lời mặc định là **không** — hãy thêm một endpoint chuyên biệt cho đúng
-> việc đó, với tham số có kiểu rõ ràng, thay vì mở một cửa chạy lệnh tuỳ ý.
->
-> Lý do: hệ thống vào được từ điện thoại qua trình duyệt. Một phiên bị chiếm mà có quyền chạy lệnh
-> tuỳ ý là mất trắng cả PC lẫn laptop. Tắt nhầm máy thì mất vài phút; chạy nhầm lệnh thì có thể mất
-> dữ liệu vĩnh viễn.
+Chúng không biến mất cùng code — MeshCentral cũng chịu đúng các giới hạn vật lý này:
 
-### Sổ đăng ký thiết bị
-
-Hệ thống **lưu danh sách các desktop đã từng kết nối tới server**. Mỗi thiết bị có:
-
-- Id ổn định (sinh khi agent đăng ký lần đầu, lưu lại phía agent)
-- Tên máy, hệ điều hành
-- Địa chỉ tailnet
-- **Địa chỉ MAC** — bắt buộc để đánh thức; ghi lại khi agent còn online, vì lúc máy đã tắt thì không
-  hỏi được nữa
-- **Nhãn LAN** — các máy cùng một mạng nội bộ mang cùng nhãn. Đây là cách hệ thống biết máy nào đánh
-  thức được máy nào (§5a.1). Suy ra từ subnet mà agent báo về.
-- **Có làm waker được không** — máy đang bật, có dây/Wi-Fi trong LAN đó
-- **Kết quả đo khả năng đánh thức** — đánh thức được từ trạng thái nào (sleep / hibernate / shutdown),
-  hay không đánh thức được. Điền sau khi thử thật, không đoán.
-- Lần cuối thấy online, trạng thái hiện tại
-
-Đây cũng chính là dữ liệu của **năng lực 1** (hiện diện). Hai năng lực dùng chung một bảng — không
-tạo hai sổ đăng ký riêng.
-
-Thiết bị mới phải được **duyệt thủ công** một lần từ giao diện trước khi nhận lệnh. Agent tự đăng ký
-xong là ở trạng thái chờ duyệt, không nhận lệnh ngay.
-
-### Quy tắc thiết kế bắt buộc
-
-1. **Mỗi hành động là một endpoint riêng.** `POST /api/devices/{id}/shutdown`, `/restart`, … Không
-   có endpoint nhận tham số `action` rồi rẽ nhánh, và tuyệt đối không nhận chuỗi lệnh.
-2. **Chỉ POST, body JSON.** Không nhận lệnh qua query string — query string bị ghi vào log server,
-   lịch sử trình duyệt, và referer header.
-3. **Không gọi qua shell.** Dùng API Windows trực tiếp, hoặc `ProcessStartInfo` với `ArgumentList`
-   (mảng tham số) — **không** `Arguments` (chuỗi ghép). Không có tham số nào của các lệnh này đến từ
-   input người dùng, nên đừng tạo ra chỗ để nó đến.
-4. **Xác nhận hai bước ở giao diện.** Shutdown và restart phải hỏi lại, có nêu **tên máy**. Bấm nhầm
-   trên màn hình điện thoại rất dễ.
-5. **Không tắt được máy đang chạy backend qua giao diện.** Tự tắt server đang phục vụ chính request
-   đó là hành vi khó hiểu. Nếu thực sự muốn, làm ở máy đó trực tiếp.
-6. **Có timeout.** Agent không phản hồi trong vài giây thì báo lỗi rõ ràng, không treo giao diện.
-7. **Ghi nhật ký kiểm toán mọi lệnh** — thời điểm, phiên nào gọi, máy đích, hành động, kết quả. Đây
-   là ngoại lệ có chủ đích với quy tắc "không log" ở §6.5.
+- **Tập hành động phải đóng.** Tắt, khởi động lại, ngủ, khoá màn hình. Không có "chạy lệnh tuỳ
+  ý" — đó là quyết định gốc của §5a và vẫn giữ nguyên, dù nay do MeshCentral thực thi.
+- **Không tự tắt máy đang chạy hub.** Tắt nó là cắt luôn đường vào hệ thống.
+- **Mọi lệnh cần xác nhận trước khi gửi.** Hậu quả vật lý không lấy lại được.
 
 ### 5a.1. Đánh thức máy từ xa — đọc kỹ, đây là chỗ dễ hiểu sai nhất
 
@@ -720,7 +679,7 @@ Internet Archive là tổ chức phi lợi nhuận, và ta đang dùng băng th�
 Cùng khuôn với năng lực 5, vì cùng lý do:
 
 - Backend trong `Hub.Video`, frontend trong `/src/features/video`.
-- **`Hub.Video` không phụ thuộc `Hub.Agent` hay `Hub.Windows`.** Nó chỉ gọi ra Internet.
+- **`Hub.Video` không phụ thuộc bất cứ project nào khác ngoài `Hub.Core`.** Nó chỉ gọi ra Internet.
 - **Không dùng chung `HttpClient` đã cấu hình** với phần tailnet.
 - Xoá bỏ năng lực 7 phải là xoá một project, một thư mục frontend, một mục navigation.
 
@@ -1016,6 +975,7 @@ lý do.
 | 2026-08-31 | **Chưa** kết luận TMDB có bị chặn ở VN hay không | `api.themoviedb.org` không kết nối được, nhưng `curl` trên máy này **không có HTTP/3** — đúng công cụ thiếu năng lực đã từng làm kết luận sai về MangaDex. Phải đo lại bằng `HttpClient` của .NET |
 | 2026-09-01 | Địa chỉ MeshCentral chọn theo **Host của request**, không phải một URL cứng | Tên MagicDNS chỉ phân giải được trong tailnet; trả nó cho người vào qua Internet thì trình duyệt báo không tìm thấy máy chủ. Dùng Host chứ không dùng IP client vì sau Cloudflare Tunnel mọi request đều đến từ loopback |
 | 2026-09-01 | **Năng lực 2 giao cho MeshCentral**, xoá trang `/files` | MeshCentral đã có duyệt và truyền file trong chính agent của nó. Dựng thêm trang duyệt file của ta là viết lại thứ đã có — đúng điều §2.3 cấm. `/files` chuyển hướng sang `/remote` cho ai đã lưu đường dẫn cũ |
+| 2026-09-01 | **Xoá hẳn agent tự viết**: Hub.Agent, Hub.Windows, 4 endpoint điều khiển nguồn, sổ đăng ký thiết bị, 2 bảng DB | MeshCentral đã làm đủ những việc đó. Giữ cả hai là bảo trì hai thứ cùng làm một việc (§2.3). Hệ quả tốt: `Hub.Core` không còn phụ thuộc Windows (hợp §3.3), và hub không còn endpoint nào đổi trạng thái vật lý của máy |
 
 ---
 
@@ -1061,3 +1021,7 @@ Các câu đã chốt (thư viện UI, chạy lệnh shell) đã chuyển vào �
 13. Có dùng TMDB để bù metadata (poster, mô tả) cho năng lực 7 không? Trả lời được sau khi đo lại
     khả năng truy cập (§11 nhật ký 2026-08-31). Là thứ **làm đẹp** — năng lực 7 phải chạy đủ khi
     không có nó.
+
+
+
+

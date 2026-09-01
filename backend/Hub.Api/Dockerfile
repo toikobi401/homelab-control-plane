@@ -17,7 +17,6 @@ COPY global.json Directory.Build.props ./
 COPY backend/Hub.Core/Hub.Core.csproj      backend/Hub.Core/
 COPY backend/Hub.Data/Hub.Data.csproj      backend/Hub.Data/
 COPY backend/Hub.Manga/Hub.Manga.csproj    backend/Hub.Manga/
-COPY backend/Hub.Windows/Hub.Windows.csproj backend/Hub.Windows/
 COPY backend/Hub.Api/Hub.Api.csproj        backend/Hub.Api/
 
 RUN dotnet restore backend/Hub.Api/Hub.Api.csproj

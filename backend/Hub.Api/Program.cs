@@ -58,8 +58,6 @@ builder.Services.Configure<SetupOptions>(
     builder.Configuration.GetSection(SetupOptions.SectionName));
 builder.Services.Configure<TailscaleOptions>(
     builder.Configuration.GetSection(TailscaleOptions.SectionName));
-builder.Services.Configure<AgentOptions>(
-    builder.Configuration.GetSection(AgentOptions.SectionName));
 builder.Services.Configure<MeshCentralOptions>(
     builder.Configuration.GetSection(MeshCentralOptions.SectionName));
 
@@ -85,19 +83,6 @@ builder.Services.AddSingleton<TailscaleClient>();
 
 // Cache đứng trước client thật — mọi chỗ khác chỉ thấy ITailnetClient.
 builder.Services.AddSingleton<ITailnetClient, CachedTailnetClient>();
-
-// Năng lực 6 — điều khiển nguồn máy từ xa (§5a).
-builder.Services.AddScoped<IDeviceStore, EfDeviceStore>();
-builder.Services.AddScoped<DeviceRegistryService>();
-builder.Services.AddScoped<DeviceControlService>();
-builder.Services.AddScoped<IAgentCommandSender, HttpAgentCommandSender>();
-
-builder.Services.AddHttpClient(HttpAgentCommandSender.HttpClientName, (provider, client) =>
-{
-    // §5a điều 6: agent không phản hồi thì báo lỗi rõ ràng, không treo giao diện.
-    var agentOptions = provider.GetRequiredService<IOptions<AgentOptions>>().Value;
-    client.Timeout = agentOptions.Timeout;
-});
 
 builder.Services.AddHubAuthentication();
 
@@ -191,8 +176,6 @@ app.MapAntiforgeryEndpoints();
 app.MapAuthEndpoints();
 app.MapDeviceEndpoints();
 app.MapMeshCentralEndpoints();
-app.MapDeviceRegistryEndpoints();
-app.MapDeviceControlEndpoints();
 
 // React Router điều hướng phía client: /devices không có file tương ứng trên đĩa.
 // Fallback trả index.html để router tự xử lý đường dẫn.

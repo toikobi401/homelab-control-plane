@@ -1,6 +1,5 @@
 <Solution>
   <Folder Name="/backend/">
-    <Project Path="backend/Hub.Agent/Hub.Agent.csproj" />
     <Project Path="backend/Hub.Api/Hub.Api.csproj" />
     <Project Path="backend/Hub.Core/Hub.Core.csproj" />
     <Project Path="backend/Hub.Core.Tests/Hub.Core.Tests.csproj" />
@@ -8,6 +7,6 @@
     <Project Path="backend/Hub.Api.Tests/Hub.Api.Tests.csproj" />
     <Project Path="backend/Hub.Data/Hub.Data.csproj" />
     <Project Path="backend/Hub.Manga/Hub.Manga.csproj" />
-    <Project Path="backend/Hub.Windows/Hub.Windows.csproj" />
   </Folder>
 </Solution>
+
