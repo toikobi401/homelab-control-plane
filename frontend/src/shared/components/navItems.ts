@@ -1,4 +1,4 @@
-import { Activity, BookOpen, HardDrive, Power, Server, ShieldCheck, Upload } from 'lucide-react'
+import { Activity, BookOpen, Power, Server, ShieldCheck, Upload } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavItem {
@@ -22,7 +22,8 @@ export const navItems: readonly NavItem[] = [
   // tiêu đề đã nói đủ. Desktop rộng chỗ nên hiện thành mục riêng.
   { to: '/', label: 'Trạng thái', icon: Activity, desktopOnly: true },
   { to: '/devices', label: 'Thiết bị', icon: Server },
-  { to: '/files', label: 'Tệp', icon: HardDrive },
+  // Không có mục "Tệp": MeshCentral đã có sẵn duyệt và truyền file, nên năng
+  // lực 2 được phục vụ ở tab Điều khiển (§2.3: tái sử dụng thay vì tự viết).
   { to: '/backup', label: 'Sao lưu', icon: Upload },
   // Năng lực 6, nhúng MeshCentral. Nó lo cả điều khiển nguồn lẫn điều khiển
   // màn hình, nên năng lực 4 coi như được phục vụ luôn ở đây (§2.3: tái sử

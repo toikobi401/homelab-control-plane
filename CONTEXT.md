@@ -23,7 +23,7 @@ Năm năng lực, theo thứ tự xây dựng:
 | # | Năng lực | Trạng thái |
 |---|---|---|
 | 1 | Sổ đăng ký thiết bị + hiện diện (online/offline, lần cuối thấy) | Chưa bắt đầu |
-| 2 | Duyệt và truyền file giữa các thiết bị | Chưa bắt đầu |
+| 2 | Duyệt và truyền file giữa các thiết bị | **Giao cho MeshCentral** — không tự xây (§2.3) |
 | 3 | Sao lưu lên cloud storage, sau đó lên NAS cá nhân | Chưa bắt đầu |
 | 4 | Điều khiển màn hình từ xa vào PC/laptop Windows | Chưa bắt đầu |
 | 5 | Đọc truyện tranh qua API công khai (MangaDex, …) | Chưa bắt đầu |
@@ -65,7 +65,7 @@ thẳng ở đây thay vì giấu đi:
 |---|---|
 | **Theo dõi vị trí nền** | **Đã bỏ năng lực này hoàn toàn.** Trình duyệt không chạy nền được; đóng tab là dừng. Không có cách vòng nào tử tế. |
 | Thông báo đẩy khi đóng tab | Web Push có làm được nhưng phiền; iOS còn bắt thêm bước cài về màn hình chính. Chưa làm. |
-| Truy cập file tuỳ ý trên điện thoại | Trình duyệt chỉ thấy file người dùng tự chọn. Năng lực 2 vì thế **chỉ áp dụng cho PC và laptop** (nơi có agent), không duyệt được file trong điện thoại. |
+| Truy cập file tuỳ ý trên điện thoại | Trình duyệt chỉ thấy file người dùng tự chọn. Năng lực 2 vì thế **chỉ áp dụng cho PC và laptop** (nơi có agent), không duyệt được file trong điện thoại. Nay việc này do MeshCentral làm — giới hạn vẫn nguyên, chỉ đổi người thực hiện. |
 | Chạy khi máy khởi động | Chỉ backend .NET và agent chạy nền được. Trình duyệt thì không. |
 
 Ai đọc file này về sau và thấy tiếc những thứ trên: **đừng đề xuất quay lại native.** Quyết định đã
@@ -93,10 +93,11 @@ công khai.
 
 | Nhu cầu | Dùng | KHÔNG được |
 |---|---|---|
-| Truyền file giữa desktop | SFTP qua tailnet (`sshd` trên máy desktop) | Viết giao thức truyền file riêng |
+| Duyệt và truyền file giữa desktop | **MeshCentral** (đã có sẵn trong agent) | Viết giao thức truyền file riêng, hay dựng trang duyệt file của ta |
 | Đồng bộ file (về sau) | Syncthing, điều khiển bởi UI của ta | Tự viết lại đồng bộ mức block |
 | Sao lưu cloud/NAS | Gọi binary `rclone` từ backend | Tự tay viết client S3/Drive/WebDAV |
-| Điều khiển màn hình | Nhúng client VNC chạy được trong trình duyệt (noVNC) | Viết codec hay giao thức nhập liệu |
+| Điều khiển màn hình | **MeshCentral** (thay cho noVNC ghi ban đầu) | Viết codec hay giao thức nhập liệu |
+| Điều khiển nguồn, Wake-on-LAN | **MeshCentral** | Tự viết agent nhận lệnh tắt/mở máy |
 
 Hệ thống của ta là một **control plane và một UI**. Phần việc nặng giao cho công cụ đã được kiểm
 chứng. Bất kỳ PR nào bắt đầu viết lại một mục ở cột bên phải đều bị từ chối.
@@ -144,8 +145,10 @@ chứng. Bất kỳ PR nào bắt đầu viết lại một mục ở cột bên
 Backend chạy trên PC. Laptop vẫn cần một thành phần nhỏ để báo danh và nhận lệnh.
 
 - **Cùng codebase .NET**, chạy ở chế độ agent. Không phải dự án riêng, không phải ngôn ngữ khác.
-- Nhiệm vụ hẹp: báo tín hiệu sống, báo thông tin máy, nhận lệnh của năng lực 6, phục vụ SFTP cho
-  năng lực 2.
+- Nhiệm vụ hẹp: báo tín hiệu sống và báo thông tin máy.
+- **Không còn phục vụ năng lực 2 và 6.** MeshCentral có agent riêng lo điều khiển nguồn,
+  Wake-on-LAN, điều khiển màn hình, và duyệt/truyền file (§2.3). Agent tự viết chỉ còn phần
+  hub thật sự cần mà MeshCentral không cấp.
 - **Không có UI.** Agent là service chạy nền.
 - Máy nào chạy backend thì cũng tự đóng vai agent của chính nó — không chạy hai process trên PC.
 
@@ -179,9 +182,8 @@ là thứ cho phép backend chuyển sang NAS mà không phải viết lại.
   /Hub.Video              Client Internet Archive — cô lập, xem §5b
 /frontend               Ứng dụng React + Vite
   /src/features/devices   Danh sách thiết bị, trạng thái hiện diện
-  /src/features/files     Trình duyệt file, hàng đợi truyền
   /src/features/backup    Job sao lưu và lịch sử
-  /src/features/remote    Phiên điều khiển màn hình
+  /src/features/remote    MeshCentral nhúng — điều khiển máy, màn hình, file
   /src/features/manga     Đọc truyện (năng lực 5, cô lập)
   /src/features/video     Xem phim (năng lực 7, cô lập)
   /src/components/ui      shadcn/ui — mã chép vào repo, được phép sửa
@@ -1012,6 +1014,8 @@ lý do.
 | 2026-08-31 | Mọi truy vấn phim **bắt buộc lọc `licenseurl:[* TO *]`** | Đo được chỉ **37%** mục trong `feature_films` khai báo giấy phép (9.050/28.482). Không khai báo ≠ tự do. Bộ lọc biến câu hỏi pháp lý thành điều kiện truy vấn |
 | 2026-08-31 | Proxy video **phải chuyển tiếp header `Range`** | IA trả `Accept-Ranges: bytes` và 206 — đây là thứ cho phép tua. Nuốt mất `Range` là mất tua, và đây là lỗi dễ mắc nhất khi viết proxy video |
 | 2026-08-31 | **Chưa** kết luận TMDB có bị chặn ở VN hay không | `api.themoviedb.org` không kết nối được, nhưng `curl` trên máy này **không có HTTP/3** — đúng công cụ thiếu năng lực đã từng làm kết luận sai về MangaDex. Phải đo lại bằng `HttpClient` của .NET |
+| 2026-09-01 | Địa chỉ MeshCentral chọn theo **Host của request**, không phải một URL cứng | Tên MagicDNS chỉ phân giải được trong tailnet; trả nó cho người vào qua Internet thì trình duyệt báo không tìm thấy máy chủ. Dùng Host chứ không dùng IP client vì sau Cloudflare Tunnel mọi request đều đến từ loopback |
+| 2026-09-01 | **Năng lực 2 giao cho MeshCentral**, xoá trang `/files` | MeshCentral đã có duyệt và truyền file trong chính agent của nó. Dựng thêm trang duyệt file của ta là viết lại thứ đã có — đúng điều §2.3 cấm. `/files` chuyển hướng sang `/remote` cho ai đã lưu đường dẫn cũ |
 
 ---
 

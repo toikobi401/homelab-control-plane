@@ -4,7 +4,6 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import { BackupPage } from '@/features/backup/BackupPage'
 import { DevicesPage } from '@/features/devices/DevicesPage'
-import { FilesPage } from '@/features/files/FilesPage'
 import { HealthPage } from '@/features/health/HealthPage'
 import { MangaPage } from '@/features/manga/MangaPage'
 import { RemotePage } from '@/features/remote/RemotePage'
@@ -29,12 +28,15 @@ export function App() {
             <Route element={<AppLayout />}>
               <Route index element={<HealthPage />} />
               <Route path="devices" element={<DevicesPage />} />
-              <Route path="files" element={<FilesPage />} />
               <Route path="backup" element={<BackupPage />} />
               <Route path="remote" element={<RemotePage />} />
               <Route path="manga" element={<MangaPage />} />
               <Route path="sessions" element={<SessionsPage />} />
               <Route path="health" element={<Navigate to="/" replace />} />
+              {/* /files từng là năng lực 2 (duyệt và truyền file). MeshCentral
+                  đã có sẵn việc đó nên trang bị xoá — nhưng ai đã lưu đường dẫn
+                  cũ thì đưa tới đúng chỗ, thay vì thả vào trang 404. */}
+              <Route path="files" element={<Navigate to="/remote" replace />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>

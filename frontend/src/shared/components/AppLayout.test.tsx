@@ -17,6 +17,15 @@ function renderLayout(route = '/') {
 }
 
 describe('AppLayout', () => {
+  it('không còn mục "Tệp" — MeshCentral đã lo duyệt và truyền file', () => {
+    // Năng lực 2 giao cho MeshCentral (§2.3). Còn mục này trong nav là hứa một
+    // trang không tồn tại.
+    renderLayout()
+
+    expect(screen.queryByRole('link', { name: 'Tệp' })).not.toBeInTheDocument()
+    expect(navItems.some((item) => item.to === '/files')).toBe(false)
+  })
+
   it('có hai thanh điều hướng: một cho điện thoại, một cho desktop', () => {
     renderLayout()
 
