@@ -1,0 +1,402 @@
+/*
+ * Theme Device Hub cho MeshCentral
+ * ================================
+ *
+ * Mục đích: MeshCentral nhúng trong tab "Điều khiển" của hub trông như cùng một
+ * ứng dụng, thay vì hai app lồng nhau.
+ *
+ * VÌ SAO LÀ FILE NÀY: MeshCentral luôn nạp `styles/custom.css` và nó là
+ * stylesheet CUỐI CÙNG trong <head> — đo được bằng trình duyệt thật. Nhờ vậy ta
+ * thắng về độ ưu tiên mà gần như không cần `!important`, và **không phải sửa gì
+ * trong node_modules** nên `npm update` không xoá mất.
+ *
+ * NGUYÊN TẮC: chỉ đụng lớp trình bày. Không đổi bố cục, không ẩn nút, không
+ * chạm hành vi. Hỏng thì xoá file này là về nguyên trạng.
+ *
+ * Token màu lấy từ frontend/src/index.css (dark mode), đã chuyển oklch → sRGB.
+ */
+
+/* ── Token: một nguồn sự thật ─────────────────────────────────────────────── */
+
+:root {
+  --hub-bg: #0a0a0a;
+  --hub-card: #171717;
+  --hub-elevated: #1f1f1f;
+  --hub-fg: #fafafa;
+  --hub-muted-fg: #a1a1a1;
+  --hub-border: #2e2e2e;
+  --hub-accent: #262626;
+  --hub-primary: #e5e5e5;
+  --hub-primary-fg: #171717;
+  --hub-success: #46b964;
+  --hub-destructive: #ff6467;
+  --hub-radius: 10px;
+  --hub-radius-sm: 6px;
+
+  --hub-font:
+    Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+}
+
+/*
+ * Bootstrap 5 dựng gần như toàn bộ diện mạo từ biến ở :root. Ghi đè ở đây là
+ * đổi được hàng trăm quy tắc cùng lúc — hiệu quả hơn nhắm từng selector, và ít
+ * rủi ro hơn vì ta đi theo đúng cơ chế Bootstrap đã thiết kế.
+ */
+:root,
+[data-bs-theme='dark'] {
+  --bs-body-bg: var(--hub-bg);
+  --bs-body-color: var(--hub-fg);
+  --bs-emphasis-color: var(--hub-fg);
+  --bs-secondary-color: var(--hub-muted-fg);
+  --bs-secondary-bg: var(--hub-card);
+  --bs-tertiary-bg: var(--hub-accent);
+  --bs-border-color: var(--hub-border);
+  --bs-border-radius: var(--hub-radius);
+  --bs-border-radius-sm: var(--hub-radius-sm);
+  --bs-border-radius-lg: var(--hub-radius);
+
+  --bs-primary: var(--hub-primary);
+  --bs-primary-rgb: 229, 229, 229;
+  --bs-success: var(--hub-success);
+  --bs-danger: var(--hub-destructive);
+
+  --bs-link-color: var(--hub-fg);
+  --bs-link-hover-color: #ffffff;
+
+  --bs-table-bg: var(--hub-card);
+  --bs-table-striped-bg: #1c1c1c;
+  --bs-table-hover-bg: var(--hub-accent);
+  --bs-table-border-color: var(--hub-border);
+
+  --bs-font-sans-serif: var(--hub-font);
+}
+
+/* ── Nền và chữ ───────────────────────────────────────────────────────────── */
+
+html,
+body,
+body.night {
+  background-color: var(--hub-bg);
+  color: var(--hub-fg);
+  font-family: var(--hub-font);
+  /* Chữ mảnh hơn trên nền tối — khớp cảm giác của hub. */
+  -webkit-font-smoothing: antialiased;
+}
+
+#container,
+#column_l,
+#column_c {
+  background-color: var(--hub-bg);
+}
+
+/* ── Thanh tiêu đề: bỏ gradient xanh navy ─────────────────────────────────── */
+
+/*
+ * `#masthead` mặc định là rgb(0,51,102) — xanh navy, thứ khiến MeshCentral lạc
+ * lõng nhất khi nhúng cạnh hub. Ảnh nền cũng bỏ luôn.
+ */
+#masthead,
+.masthead-container {
+  background: var(--hub-card) !important;
+  background-image: none !important;
+  border-bottom: 1px solid var(--hub-border);
+  box-shadow: none;
+}
+
+#masthead .title,
+#masthead .title2 {
+  color: var(--hub-fg);
+  text-shadow: none;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ── Sidebar icon dọc ─────────────────────────────────────────────────────── */
+
+/*
+ * Cột icon bên trái là `#page_leftbar.sidebar` — KHÔNG phải `#topbar`. Nó dùng
+ * `linear-gradient(#104893 → #113962)`, nên đặt `background-color` không có tác
+ * dụng: phải ghi đè `background` (thuộc tính gộp) mới xoá được gradient.
+ * Đo bằng getComputedStyle trên trang thật, không đoán từ tên id.
+ */
+#page_leftbar,
+#page_leftbar.sidebar {
+  background: var(--hub-card) !important;
+  background-image: none !important;
+  border-right: 1px solid var(--hub-border);
+}
+
+#topbar {
+  background-color: var(--hub-card);
+}
+
+/*
+ * Mục đang chọn: nền `accent` thay vì highlight xanh, khớp sidebar của hub.
+ * Chỉ đổi màu — không đụng cách MeshCentral đánh dấu mục nào đang mở.
+ */
+#page_leftbar a:hover,
+#page_leftbar div[onclick]:hover,
+#topbar div[onclick]:hover,
+#topbar .lbbuttonsel,
+#topbar .lbbutton:hover {
+  background-color: var(--hub-accent);
+  border-radius: var(--hub-radius-sm);
+}
+
+/* ── Chân trang ───────────────────────────────────────────────────────────── */
+
+/* Cũng là navy `rgb(17,57,98)` — cùng gốc với sidebar. */
+#footer {
+  background: var(--hub-card) !important;
+  background-image: none !important;
+  border-top: 1px solid var(--hub-border);
+}
+
+#footer a {
+  color: var(--hub-muted-fg);
+}
+
+#footer a:hover {
+  color: var(--hub-fg);
+}
+
+/* ── Thẻ, panel, bảng ─────────────────────────────────────────────────────── */
+
+#xdevices,
+#p1,
+.deviceBox,
+.panel,
+.card {
+  background-color: var(--hub-card);
+  border-color: var(--hub-border);
+  border-radius: var(--hub-radius);
+}
+
+.table,
+table.table {
+  --bs-table-color: var(--hub-fg);
+  border-color: var(--hub-border);
+}
+
+/* ── Nút ──────────────────────────────────────────────────────────────────── */
+
+/*
+ * shadcn dùng nút phẳng, viền mảnh, bo 6px. Bootstrap mặc định có gradient nhẹ
+ * và bo 4px — chỉnh cho khớp.
+ */
+.btn {
+  border-radius: var(--hub-radius-sm);
+  font-weight: 500;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.btn-secondary,
+input.btn-secondary {
+  background-color: transparent;
+  border: 1px solid var(--hub-border);
+  color: var(--hub-fg);
+}
+
+.btn-secondary:hover,
+input.btn-secondary:hover {
+  background-color: var(--hub-accent);
+  border-color: var(--hub-border);
+  color: var(--hub-fg);
+}
+
+.btn-primary {
+  background-color: var(--hub-primary);
+  border-color: var(--hub-primary);
+  color: var(--hub-primary-fg);
+}
+
+.btn-primary:hover {
+  background-color: #ffffff;
+  border-color: #ffffff;
+  color: var(--hub-primary-fg);
+}
+
+.btn-danger {
+  background-color: transparent;
+  border: 1px solid var(--hub-destructive);
+  color: var(--hub-destructive);
+}
+
+.btn-danger:hover {
+  background-color: var(--hub-destructive);
+  color: var(--hub-bg);
+}
+
+/* ── Ô nhập ───────────────────────────────────────────────────────────────── */
+
+/*
+ * Ô input vàng nhạt (#ffffcc) là dấu hiệu dễ nhận nhất của MeshCentral đời cũ.
+ * Đổi sang nền tối viền mảnh.
+ */
+input[type='text'],
+input[type='password'],
+input[type='email'],
+input[type='number'],
+input[type='search'],
+select,
+textarea,
+.form-control,
+.form-select {
+  background-color: var(--hub-bg);
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius-sm);
+  color: var(--hub-fg);
+}
+
+input[type='text']:focus,
+input[type='password']:focus,
+select:focus,
+textarea:focus,
+.form-control:focus,
+.form-select:focus {
+  background-color: var(--hub-bg);
+  border-color: var(--hub-muted-fg);
+  color: var(--hub-fg);
+  /* Vòng focus mảnh, không phải viền xanh dày của Bootstrap. */
+  box-shadow: 0 0 0 1px var(--hub-muted-fg);
+  outline: none;
+}
+
+::placeholder {
+  color: var(--hub-muted-fg);
+  opacity: 1;
+}
+
+/* ── Hộp thoại ────────────────────────────────────────────────────────────── */
+
+.modal-content,
+#dialog,
+.dialogBox {
+  background-color: var(--hub-card);
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius);
+}
+
+.modal-header,
+.modal-footer {
+  border-color: var(--hub-border);
+}
+
+/* ── Trang đăng nhập ──────────────────────────────────────────────────────── */
+
+/*
+ * Trang login dùng template riêng (login2.handlebars), không phải default3 —
+ * nên phải nhắm riêng. Đây là màn hình đầu tiên người dùng thấy.
+ */
+body.login,
+body.login2,
+.login-container,
+#loginpanel {
+  background: var(--hub-bg) !important;
+  background-image: none !important;
+}
+
+#centralTable,
+.centralTable {
+  background-color: var(--hub-card);
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius);
+  box-shadow: none;
+}
+
+/* ── Thanh cuộn ───────────────────────────────────────────────────────────── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--hub-border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--hub-border);
+  border-radius: 5px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--hub-muted-fg);
+}
+
+/* ── Responsive ───────────────────────────────────────────────────────────── */
+
+/*
+ * Hub là mobile-first (CONTEXT §3) và MeshCentral được mở từ điện thoại qua
+ * tailnet. MeshCentral có bố cục riêng cho màn hình hẹp — ta KHÔNG đụng vào bố
+ * cục đó, chỉ nới vùng chạm cho ngón tay.
+ */
+@media (max-width: 768px) {
+  .btn,
+  input[type='button'],
+  input[type='submit'] {
+    /* 44px là ngưỡng vùng chạm tối thiểu — dưới mức đó ngón tay bấm trượt. */
+    min-height: 40px;
+  }
+
+  input[type='text'],
+  input[type='password'],
+  select,
+  .form-control,
+  .form-select {
+    min-height: 40px;
+    /* iOS Safari tự phóng to trang khi focus vào input có cỡ chữ < 16px. */
+    font-size: 16px;
+  }
+
+  #masthead .title {
+    font-size: 1.1rem;
+  }
+}
+
+/*
+ * Màn hình rất hẹp: bảng thiết bị dễ tràn ngang. Cho cuộn trong chính nó thay
+ * vì đẩy cả trang trượt — trang trượt ngang là lỗi bố cục dễ thấy nhất.
+ */
+@media (max-width: 480px) {
+  #xdevices,
+  .table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /*
+   * Sidebar mặc định rộng 70px — trên màn 390px đó là 18% chiều ngang chỉ để
+   * chứa icon. Thu còn 56px trả lại chỗ cho tên thiết bị, vẫn đủ vùng chạm
+   * (icon 24px + 16px đệm mỗi bên).
+   *
+   * Chỉ đổi bề rộng, không đụng cách sidebar hoạt động.
+   */
+  #page_leftbar,
+  #page_leftbar.sidebar {
+    width: 56px;
+    min-width: 56px;
+  }
+
+  #page_leftbar img,
+  #page_leftbar .i1,
+  #page_leftbar .i2 {
+    max-width: 36px;
+  }
+}
+
+/* ── Giảm chuyển động ─────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .btn {
+    transition: none;
+  }
+}
