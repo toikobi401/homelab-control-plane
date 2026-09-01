@@ -28,6 +28,7 @@ Năm năng lực, theo thứ tự xây dựng:
 | 4 | Điều khiển màn hình từ xa vào PC/laptop Windows | Chưa bắt đầu |
 | 5 | Đọc truyện tranh qua API công khai (MangaDex, …) | Chưa bắt đầu |
 | 6 | Tắt, mở, khởi động lại máy từ xa (đánh thức qua waker — §5a.1) | Chưa bắt đầu |
+| 7 | Xem phim từ kho công cộng (Internet Archive) | Chưa bắt đầu |
 
 Các năng lực 2, 3, 4, 6 phụ thuộc vào lớp transport và xác thực của năng lực 1. Không làm sai thứ tự.
 
@@ -175,12 +176,14 @@ là thứ cho phép backend chuyển sang NAS mà không phải viết lại.
   /Hub.Windows            Hiện thực riêng cho Windows (đứng sau interface của Core)
   /Hub.Agent              Service chạy trên máy desktop
   /Hub.Manga              Client MangaDex — cô lập, xem §5
+  /Hub.Video              Client Internet Archive — cô lập, xem §5b
 /frontend               Ứng dụng React + Vite
   /src/features/devices   Danh sách thiết bị, trạng thái hiện diện
   /src/features/files     Trình duyệt file, hàng đợi truyền
   /src/features/backup    Job sao lưu và lịch sử
   /src/features/remote    Phiên điều khiển màn hình
   /src/features/manga     Đọc truyện (năng lực 5, cô lập)
+  /src/features/video     Xem phim (năng lực 7, cô lập)
   /src/components/ui      shadcn/ui — mã chép vào repo, được phép sửa
   /src/shared             Component dùng chung, client API, kiểu dữ liệu
 /docs                   Tài liệu nghiên cứu (manga-api-research.md, …)
@@ -619,6 +622,127 @@ Chúng không dùng chung code, và năng lực 6 **không** được dùng làm
 
 ---
 
+## 5b. Năng lực 7 — Xem phim từ kho công cộng
+
+### Phạm vi — hẹp, và hẹp có chủ đích
+
+Duyệt, tìm kiếm, và xem phim từ **Internet Archive**. Chỉ thế.
+
+Đây **không** phải trình xem phim vạn năng. Không Netflix, không phim đang chiếu rạp, không phim
+thương mại. Nếu điều bạn muốn là xem phim mới, hãy dùng ứng dụng của nhà cung cấp — đừng nhét vào
+hub này.
+
+Số liệu đã đo: **28.482** phim trong bộ `feature_films`, trong đó **9.050** mục có khai báo giấy
+phép. Chi tiết ở `docs/video-api-research.md` — **đọc file đó trước khi viết dòng code đầu tiên.**
+
+### Vì sao chỉ Internet Archive, và vì sao cấm phần còn lại
+
+Tìm "free movie API" sẽ ra `vidsrc`, `consumet`, `superembed`, `2embed` ở đầu bảng. **Cấm dùng tất
+cả.** Lý do kỹ thuật, không phải lời răn:
+
+| Vấn đề | Hệ quả với dự án này |
+|---|---|
+| Phục vụ phim thương mại không có giấy phép | Khác hẳn MangaDex (§5): nơi đó có API công khai, có tài liệu, có rate limit chính thức |
+| Đổi tên miền liên tục vì bị gỡ | Dependency đổi địa chỉ vài tháng một lần = nợ kỹ thuật vĩnh viễn |
+| Không hợp đồng API, không tài liệu | Đổi cấu trúc JSON bất cứ lúc nào, không cảnh báo |
+| Kèm mã theo dõi và pop-up trong iframe | §6 cấm đưa thứ không kiểm soát được vào hệ thống có quyền tắt máy |
+
+Và một điểm nặng hơn tất cả: hệ thống này **đã mở ra Internet qua Cloudflare Tunnel** (§4a). Nó
+không còn là một app sideload chỉ mình dùng như giả định ban đầu của §1.
+
+> **Không thêm nguồn phim nào khác vào hệ thống này.**
+> Nếu về sau có nhu cầu "chỉ thêm một nguồn nhỏ thôi", câu trả lời mặc định là **không**.
+
+### Giấy phép là bộ lọc, không phải lời hứa
+
+Đây là ràng buộc quan trọng nhất của cả năng lực này.
+
+**Không phải mọi thứ trong `feature_films` đều là public domain.** Đo thật: chỉ **37%** khai báo
+giấy phép. Số còn lại **không khai báo gì** — nghĩa là *không xác minh được*, chứ không phải "mặc
+định tự do".
+
+Bắt buộc, không có ngoại lệ:
+
+- **Mọi truy vấn phải lọc `licenseurl:[* TO *]`.** Đã kiểm chứng cú pháp này chạy đúng. Không có
+  đường nào trong UI dẫn tới một mục không khai báo giấy phép.
+- **Hiển thị giấy phép trên trang chi tiết**, kèm liên kết tới nguyên văn. Người xem phải biết mình
+  đang xem gì.
+- **Ghi nguồn Internet Archive** ở nơi dễ thấy.
+- Một số mục là `by-nc-nd` (phi thương mại, không phái sinh) chứ không phải public domain thuần —
+  **đọc và tôn trọng từng loại**, đừng gộp tất cả thành "miễn phí".
+
+Bộ lọc này biến một câu hỏi pháp lý thành một điều kiện truy vấn. Đó chính là lý do năng lực này
+khả thi trong khi "API phim free" nói chung thì không.
+
+### Backend làm proxy — bắt buộc, và có một chi tiết dễ làm hỏng
+
+Giống năng lực 5: **frontend không bao giờ gọi thẳng Internet Archive.** Frontend gọi backend,
+backend gọi IA.
+
+Nhưng video có một yêu cầu mà ảnh truyện không có: **tua**.
+
+- Đã đo: IA trả **`Accept-Ranges: bytes`** và **206 Partial Content**. Đây là thứ cho phép nhảy tới
+  giữa phim mà không tải hết 194 MB.
+- ⚠️ **Proxy phải chuyển tiếp nguyên vẹn header `Range`** của trình duyệt, và trả lại đúng `206` +
+  `Content-Range`. Nuốt mất `Range` là mất khả năng tua — người dùng phải chờ tải xong cả file mới
+  xem được đoạn giữa. Đây là lỗi dễ mắc nhất khi viết proxy video.
+- **Stream, đừng đệm cả file vào RAM.** Một phim là hàng trăm MB; đọc hết vào bộ nhớ rồi mới trả là
+  cách chắc chắn nhất để giết backend. Dùng luồng, chép theo khối.
+
+### URL tải là node vùng, không cố định
+
+```
+GET archive.org/download/{id}/{file}
+  → 302 → dn710200.ca.archive.org/...
+```
+
+Giống hệt luồng MangaDex@Home ở §5 — và cùng một bẫy:
+
+- **Phải theo redirect.** Không giả định host đích.
+- **Không cache URL đã resolve** — node đổi được. Cache `identifier` + tên file, resolve lại mỗi
+  phiên xem.
+- **Không hardcode `dn*.archive.org`** ở bất cứ đâu, kể cả cấu hình.
+
+### Tôn trọng hạ tầng của người khác
+
+Internet Archive là tổ chức phi lợi nhuận, và ta đang dùng băng thông miễn phí của họ.
+
+- **Không công bố con số rate limit** — nhưng trả **429**, có thể kèm `Retry-After`. Phải tôn trọng,
+  không thử lại ngay.
+- **Không tải song song nhiều luồng** để xem nhanh hơn.
+- Đặt `User-Agent` định danh rõ ràng, giống quy tắc ở §5.
+- **Không tải hàng loạt về máy.** Ta là trình xem, không phải công cụ nhân bản kho lưu trữ.
+
+### Cô lập
+
+Cùng khuôn với năng lực 5, vì cùng lý do:
+
+- Backend trong `Hub.Video`, frontend trong `/src/features/video`.
+- **`Hub.Video` không phụ thuộc `Hub.Agent` hay `Hub.Windows`.** Nó chỉ gọi ra Internet.
+- **Không dùng chung `HttpClient` đã cấu hình** với phần tailnet.
+- Xoá bỏ năng lực 7 phải là xoá một project, một thư mục frontend, một mục navigation.
+
+### Metadata bổ sung — tuỳ chọn, không phải bắt buộc
+
+Metadata của IA khá thô: nhiều mục thiếu poster, thiếu mô tả. TMDB có thể bù, nhưng:
+
+- TMDB **chỉ có metadata**, không có phim. Nó không thay thế IA.
+- Miễn phí cho phi thương mại, **bắt buộc ghi nguồn**. Dự án này hợp điều kiện.
+- **Chưa đo được có vào được từ VN không** — xem `docs/video-api-research.md` §4. Đừng kết luận vội
+  như đã từng làm sai với MangaDex.
+- Là **thứ làm đẹp**. Năng lực 7 phải chạy đầy đủ khi không có TMDB.
+
+### Thứ tự làm
+
+Cuối hàng đợi, sau năng lực 5. Không bắt đầu khi Phase 0 chưa xong (§10).
+
+Ba việc **đo đạc** phải làm trước khi viết code, ghi ở `docs/video-api-research.md` §6 — quan trọng
+nhất là **đo tốc độ tải thật**. Lần đo đầu chỉ được ~51 KB/s trên đoạn 100 KB; nếu tốc độ thật duy
+trì ở mức đó thì không phát trực tiếp được, và cả năng lực này phải thiết kế lại theo hướng tải
+trước. Mẫu quá nhỏ để kết luận — nhưng phải đo trước khi cam kết.
+
+---
+
 ## 6. Xác thực nội bộ và bảo mật — không thương lượng
 
 Hệ thống này gom nội dung file, quyền truy cập từ xa vào PC, và quyền tắt-mở máy. Một phiên đăng
@@ -883,6 +1007,11 @@ lý do.
 | 2026-08-31 | Mở ra Internet qua Cloudflare Tunnel, bỏ ràng buộc "chỉ tailnet" của §1 | Yêu cầu của người dùng: vào được từ mọi thiết bị không cần cài Tailscale. Đổi lại phải tự làm rate limit và header bảo mật — thứ tailnet vốn che. Vẫn không port forwarding. Xem §4a |
 | 2026-08-31 | Năng lực 6 dùng MeshCentral thay vì agent tự viết | §2.3 — tái sử dụng, đừng phát minh lại. Được sẵn Wake-on-LAN, agent đa nền tảng, giao diện mobile |
 | 2026-08-29 | Trong container: bind `0.0.0.0`, chặn bằng cổng publish gắn IP tailnet | Container có netns riêng nên `0.0.0.0` không phơi ra mạng nhà. Cách chuẩn của Docker, chạy được trên mọi NAS. Đã kiểm chứng: từ LAN không vào được, qua tailnet trả 200 |
+| 2026-08-31 | Thêm năng lực 7: xem phim, **chỉ từ Internet Archive** | Nguồn duy nhất vừa hợp pháp, vừa cho stream thật, vừa không cần khoá. Đo thật: 28.482 phim, search/metadata trả 200, tải file trả 206 |
+| 2026-08-31 | **Cấm** mọi API phim kiểu `vidsrc`/`consumet`/`superembed` | Phục vụ phim thương mại không giấy phép; đổi tên miền liên tục; không hợp đồng API; kèm mã theo dõi. Nặng hơn cả: hệ thống nay đã mở ra Internet (§4a), không còn là app sideload riêng tư như giả định gốc của §1 |
+| 2026-08-31 | Mọi truy vấn phim **bắt buộc lọc `licenseurl:[* TO *]`** | Đo được chỉ **37%** mục trong `feature_films` khai báo giấy phép (9.050/28.482). Không khai báo ≠ tự do. Bộ lọc biến câu hỏi pháp lý thành điều kiện truy vấn |
+| 2026-08-31 | Proxy video **phải chuyển tiếp header `Range`** | IA trả `Accept-Ranges: bytes` và 206 — đây là thứ cho phép tua. Nuốt mất `Range` là mất tua, và đây là lỗi dễ mắc nhất khi viết proxy video |
+| 2026-08-31 | **Chưa** kết luận TMDB có bị chặn ở VN hay không | `api.themoviedb.org` không kết nối được, nhưng `curl` trên máy này **không có HTTP/3** — đúng công cụ thiếu năng lực đã từng làm kết luận sai về MangaDex. Phải đo lại bằng `HttpClient` của .NET |
 
 ---
 
@@ -918,3 +1047,13 @@ Các câu đã chốt (thư viện UI, chạy lệnh shell) đã chuyển vào �
     tay, không phải code**, và phải làm **trước** khi viết năng lực 6 — nếu phần cứng không hỗ trợ
     thì code cũng vô ích. Cần biết: mỗi máy đánh thức được từ trạng thái nào (sleep / hibernate /
     shutdown), qua dây hay Wi-Fi, và Fast Startup có làm hỏng không.
+11. **Tốc độ tải từ Internet Archive có đủ để phát trực tiếp không?** — *chặn đường của năng lực 7.*
+    Lần đo đầu chỉ được **~51 KB/s** trên đoạn 100 KB — quá chậm nếu duy trì, nhưng mẫu quá nhỏ để
+    kết luận. Phải đo lại với đoạn lớn hơn, nhiều thời điểm trong ngày. Nếu tốc độ thật thấp thì cả
+    năng lực 7 phải thiết kế lại theo hướng **tải trước rồi mới xem**, không phát trực tiếp.
+12. **Bao nhiêu phim trong tập dữ liệu là định dạng trình duyệt phát được?** MP4/h.264 thì phát
+    thẳng; MPEG2/MKV thì phải chuyển mã — mà chuyển mã là việc nặng, và §2.3 cấm tự viết codec. Nếu
+    tỷ lệ MP4 thấp, phải lọc thêm theo định dạng và chấp nhận kho phim nhỏ hơn.
+13. Có dùng TMDB để bù metadata (poster, mô tả) cho năng lực 7 không? Trả lời được sau khi đo lại
+    khả năng truy cập (§11 nhật ký 2026-08-31). Là thứ **làm đẹp** — năng lực 7 phải chạy đủ khi
+    không có nó.
