@@ -144,21 +144,45 @@ body.night {
   border-radius: var(--hub-radius-sm);
 }
 
-/* ── Chân trang ───────────────────────────────────────────────────────────── */
+/* ── Chân trang: ẩn hẳn ───────────────────────────────────────────────────── */
 
-/* Cũng là navy `rgb(17,57,98)` — cùng gốc với sidebar. */
-#footer {
-  background: var(--hub-card) !important;
-  background-image: none !important;
-  border-top: 1px solid var(--hub-border);
+/*
+ * Footer chỉ chứa hai link, cả hai đều thừa với hệ thống này:
+ *
+ *   - "Terms & Privacy" → trang `/terms`. Hub tự host cho một người dùng, không
+ *     phục vụ ai khác, nên không có điều khoản nào để hiển thị.
+ *   - "Verify Email" → `account_showVerifyEmail()`. Chỉ hiện khi tài khoản cần
+ *     xác minh email; ta đã có tài khoản và `newAccounts: false` nên không bao
+ *     giờ tới lượt nó.
+ *
+ * Đổi lại là ~55px chiều cao — trên điện thoại nằm ngang (390px) đó là 14% màn
+ * hình chỉ để chứa một dòng link không ai bấm.
+ *
+ * VÌ SAO ẨN BẰNG CSS chứ không dùng "Toggle Footer Bar" sẵn có: tuỳ chọn đó lưu
+ * theo tài khoản/trình duyệt, nên đổi máy hay xoá site data là footer quay lại.
+ * MeshCentral cũng tự ẩn footer ở vài chế độ (`body.fullscreen`,
+ * `body.is-mobile`, `.fulldesk`) — nhưng đó là trạng thái, không phải bảo đảm.
+ * CSS này áp cho mọi thiết bị, mọi chế độ, mọi lần mở.
+ *
+ * KHÔNG đụng `.modal-footer` — đó là chân hộp thoại, nơi chứa nút OK/Cancel.
+ * Đã kiểm chứng trên trang thật: selector khớp đúng 6 phần tử footer và 0 chân
+ * hộp thoại.
+ */
+#footer,
+#footer .footer1,
+#footer .footer2,
+#termsLinkFooter,
+#verifyEmailId2 {
+  display: none !important;
 }
 
-#footer a {
-  color: var(--hub-muted-fg);
-}
-
-#footer a:hover {
-  color: var(--hub-fg);
+/*
+ * Mục "Toggle Footer Bar" trong menu tài khoản cũng ẩn theo: để lại một nút bật
+ * thứ đã bị CSS ẩn cứng thì bấm vào không có gì xảy ra — một nút chết còn khó
+ * hiểu hơn là không có nút.
+ */
+#toggleFooterMenuItem {
+  display: none !important;
 }
 
 /* ── Thẻ, panel, bảng ─────────────────────────────────────────────────────── */
@@ -468,6 +492,9 @@ body.login .title2 {
  * Đo trên 844×390: masthead 66px + footer 55px = 121px, tức **31% chiều cao**
  * bị hai thanh trang trí chiếm mất, chỉ còn 269px cho nội dung thật.
  *
+ * Footer nay đã ẩn hẳn ở mọi khổ (xem mục "Chân trang" phía trên), nên ở đây
+ * chỉ còn phải lo masthead.
+ *
  * Dùng `max-height` chứ không phải `orientation: landscape`: cái sau còn khớp
  * cả máy tính bảng và màn hình rộng, nơi 66px chẳng phải vấn đề gì.
  */
@@ -488,18 +515,6 @@ body.login .title2 {
   /* `title2` ("Thiết bị") là chữ phụ — ẩn để lấy chỗ, tên chính vẫn còn. */
   #masthead .title2 {
     display: none;
-  }
-
-  /*
-   * Footer chỉ chứa link "Terms & Privacy". Trên màn cao 390px, 55px cho một
-   * dòng link là quá đắt — thu còn 28px, link vẫn bấm được.
-   */
-  #footer {
-    height: 28px;
-    min-height: 28px;
-    padding: 2px 8px;
-    font-size: 11px;
-    line-height: 24px;
   }
 
   /*
