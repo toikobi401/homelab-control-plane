@@ -1,7 +1,7 @@
-# Personal Device Hub
+# Homelab Control Plane
 
-Một hub tự host (self-hosted) để điều khiển và quản lý các thiết bị cá nhân — PC, laptop, điện
-thoại — từ **một giao diện web duy nhất**, không cài app native trên bất kỳ nền tảng nào.
+Một control plane tự host (self-hosted) để điều khiển và quản lý các thiết bị cá nhân — PC, laptop,
+điện thoại — từ **một giao diện web duy nhất**, không cài app native trên bất kỳ nền tảng nào.
 
 Backend .NET 10 chạy trên máy hub, frontend React chạy trong trình duyệt. Mọi thiết bị truy cập qua
 trình duyệt, đi trong mạng riêng WireGuard (Tailscale) hoặc qua Cloudflare Tunnel khi ở ngoài —

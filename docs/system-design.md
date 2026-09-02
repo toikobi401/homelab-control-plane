@@ -1,4 +1,4 @@
-# System Design — Personal Device Hub (đến 2026-09-02)
+# System Design — Homelab Control Plane (đến 2026-09-02)
 
 > Ảnh chụp kiến trúc **thực tế đã build**, không phải kế hoạch. Nguồn: `CONTEXT.md` (luật).
 > Sơ đồ đầy đủ ở `system-design.html` — mở bằng trình duyệt.

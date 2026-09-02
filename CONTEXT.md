@@ -1,4 +1,4 @@
-# CONTEXT.md — Personal Device Hub (Trung tâm thiết bị cá nhân)
+# CONTEXT.md — Homelab Control Plane (Trung tâm điều khiển thiết bị cá nhân)
 
 > **Đọc file này trước khi làm bất cứ việc gì.** Nếu một yêu cầu mâu thuẫn với quy tắc ở đây, hãy dừng
 > lại và hỏi thay vì tự quyết định. Nếu một quyết định trong file này hoá ra là sai, hãy đề xuất chỉnh
