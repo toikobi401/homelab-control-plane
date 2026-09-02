@@ -513,12 +513,18 @@ body.login .title2 {
     padding-right: 4px !important;
   }
 
-  #page_leftbar img,
-  #page_leftbar .i1,
-  #page_leftbar .i2,
+  /*
+   * Icon là **SVG**, không phải `<img>` — nhắm sai thẻ thì quy tắc không bao
+   * giờ trúng. Phải đặt cả `width`/`height`: SVG có kích thước nội tại từ
+   * thuộc tính trên thẻ, `max-width` không ép nó nhỏ lại.
+   */
+  #page_leftbar .nav-link svg,
+  #page_leftbar .nav-link img,
   #page_leftbar [class^='i'] {
-    max-width: 40px;
-    max-height: 40px;
+    width: 32px !important;
+    height: 32px !important;
+    max-width: 32px !important;
+    max-height: 32px !important;
   }
 }
 
@@ -567,10 +573,48 @@ body.login .title2 {
     -webkit-overflow-scrolling: touch;
   }
 
-  /* Nén khoảng cách giữa các mục để nhiều mục lọt vào màn hình hơn. */
+  /*
+   * Nén khoảng cách giữa các mục để nhiều mục lọt vào màn hình hơn.
+   *
+   * Padding NGANG cũng phải thu, không chỉ dọc. Đo trên 844×390: MeshCentral
+   * đặt `--bs-nav-link-padding-x: 19px`, làm `nav-link` rộng **86px** trong
+   * khung 59px — icon tràn ngang và `overflow-x: hidden` nên không cuộn tới
+   * được. Khối `max-width: 480px` đã xử lý việc này, nhưng ở khổ ngang
+   * (844px rộng) nó không khớp, nên phải lặp lại ở đây.
+   */
   #page_leftbar .nav-link {
-    padding-top: 6px !important;
-    padding-bottom: 6px !important;
+    --bs-nav-link-padding-x: 4px !important;
+    padding: 6px 4px !important;
+  }
+
+  /*
+   * Sidebar hẹp lại theo. 70px là bề rộng cho icon 48px + padding 19px; khi
+   * padding còn 4px và icon 28px thì 56px là vừa, trả 14px lại cho nội dung.
+   *
+   * `overflow-x: hidden` là chủ đích: sau khi thu, nội dung vừa khít nên không
+   * còn gì để cuộn ngang — bật `auto` chỉ tạo ra thanh cuộn thừa.
+   */
+  #page_leftbar,
+  #page_leftbar.sidebar {
+    width: 56px;
+    min-width: 56px;
+    overflow-x: hidden;
+  }
+
+  /*
+   * Icon là **SVG**, không phải `<img>`. Selector cũ nhắm `img` nên không bao
+   * giờ trúng — đó là lý do sidebar vẫn tràn dù đã thu padding.
+   *
+   * Phải đặt cả `width`/`height` chứ không chỉ `max-*`: SVG có kích thước nội
+   * tại từ thuộc tính `width` trên thẻ, `max-width` không ép nó nhỏ lại.
+   */
+  #page_leftbar .nav-link svg,
+  #page_leftbar .nav-link img,
+  #page_leftbar [class^='i'] {
+    width: 28px !important;
+    height: 28px !important;
+    max-width: 28px !important;
+    max-height: 28px !important;
   }
 
   #page_leftbar img,
