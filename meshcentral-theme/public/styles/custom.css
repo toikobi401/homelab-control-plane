@@ -441,10 +441,49 @@ body.login .title2 {
  * vì đẩy cả trang trượt — trang trượt ngang là lỗi bố cục dễ thấy nhất.
  */
 @media (max-width: 480px) {
+  /*
+   * Container có thể tràn ngang trên màn hẹp: bảng thiết bị và panel nội dung.
+   *
+   * KHÔNG đụng `#kvmListToolbar` / `#devMapToolbar`. Đo được chúng có
+   * `scrollWidth` 285px và 347px trong khung 1px — trông y như tràn cần cuộn,
+   * nhưng thực ra chúng mang class Bootstrap **`.visually-hidden`**:
+   * `overflow: hidden !important` ở đó là *một phần của kỹ thuật ẩn* cho trình
+   * đọc màn hình, không phải lỗi. Ép chúng cuộn là phá cơ chế accessibility.
+   */
   #xdevices,
-  .table-responsive {
+  #p1,
+  .table-responsive,
+  .deviceBox {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--hub-muted-fg) transparent;
+  }
+
+  /*
+   * Thanh cuộn ngang PHẢI nhìn thấy được.
+   *
+   * Trên iOS và Android, thanh cuộn mặc định ẩn hoàn toàn cho tới khi người
+   * dùng chạm và kéo — nghĩa là không có dấu hiệu nào cho biết còn nội dung bên
+   * phải. Người dùng chỉ thấy chữ bị cắt và tưởng giao diện hỏng.
+   *
+   * Ép hiện bằng `-webkit-scrollbar`, màu đủ tương phản để nhận ra nhưng vẫn
+   * mảnh (6px) để không ăn chỗ.
+   */
+  #xdevices::-webkit-scrollbar,
+  #p1::-webkit-scrollbar,
+  .table-responsive::-webkit-scrollbar,
+  .deviceBox::-webkit-scrollbar {
+    -webkit-appearance: none;
+    height: 6px;
+  }
+
+  #xdevices::-webkit-scrollbar-thumb,
+  #p1::-webkit-scrollbar-thumb,
+  .table-responsive::-webkit-scrollbar-thumb,
+  .deviceBox::-webkit-scrollbar-thumb {
+    background-color: var(--hub-muted-fg);
+    border-radius: 3px;
   }
 
   /*
