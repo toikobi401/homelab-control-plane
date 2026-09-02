@@ -436,10 +436,119 @@ body.login .title2 {
     min-width: 56px;
   }
 
+  /*
+   * Icon PHẢI thu theo, và phần giữ bề rộng là `a.nav-link` chứ không phải ảnh:
+   * đo được nav-link rộng 72px (icon 48 + padding 12 mỗi bên) trong khung 56px.
+   * Thu padding xuống 4px và icon xuống 40px → 48px, vừa khít 56px.
+   *
+   * Bootstrap đặt padding qua biến `--bs-nav-link-padding-x` với `!important`
+   * trong style-bootstrap.css, nên phải ghi đè chính biến đó.
+   */
+  #page_leftbar .nav-link {
+    --bs-nav-link-padding-x: 4px !important;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+
   #page_leftbar img,
   #page_leftbar .i1,
-  #page_leftbar .i2 {
-    max-width: 36px;
+  #page_leftbar .i2,
+  #page_leftbar [class^='i'] {
+    max-width: 40px;
+    max-height: 40px;
+  }
+}
+
+/* ── Màn hình thấp: điện thoại nằm ngang ──────────────────────────────────── */
+
+/*
+ * Đây là trường hợp tệ nhất, và cũng là lúc người ta hay xoay máy — điều khiển
+ * màn hình từ xa gần như luôn dùng ngang.
+ *
+ * Đo trên 844×390: masthead 66px + footer 55px = 121px, tức **31% chiều cao**
+ * bị hai thanh trang trí chiếm mất, chỉ còn 269px cho nội dung thật.
+ *
+ * Dùng `max-height` chứ không phải `orientation: landscape`: cái sau còn khớp
+ * cả máy tính bảng và màn hình rộng, nơi 66px chẳng phải vấn đề gì.
+ */
+@media (max-height: 500px) {
+  /* Masthead: 66px → 44px. Đủ chỗ cho tên và menu tài khoản. */
+  #masthead,
+  .masthead-container {
+    height: 44px;
+    min-height: 44px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  #masthead .title {
+    font-size: 1rem;
+  }
+
+  /* `title2` ("Thiết bị") là chữ phụ — ẩn để lấy chỗ, tên chính vẫn còn. */
+  #masthead .title2 {
+    display: none;
+  }
+
+  /*
+   * Footer chỉ chứa link "Terms & Privacy". Trên màn cao 390px, 55px cho một
+   * dòng link là quá đắt — thu còn 28px, link vẫn bấm được.
+   */
+  #footer {
+    height: 28px;
+    min-height: 28px;
+    padding: 2px 8px;
+    font-size: 11px;
+    line-height: 24px;
+  }
+
+  /*
+   * ĐÂY LÀ LỖI CHỨC NĂNG, không phải thẩm mỹ: đo được sidebar cắt mất 2/6 mục
+   * và `overflow-y: hidden` nên KHÔNG cuộn tới được. Hai trang trở thành không
+   * thể mở. Cho phép cuộn dọc là trả lại đường vào.
+   */
+  #page_leftbar,
+  #page_leftbar.sidebar {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Nén khoảng cách giữa các mục để nhiều mục lọt vào màn hình hơn. */
+  #page_leftbar .nav-link {
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+  }
+
+  #page_leftbar img,
+  #page_leftbar .i1,
+  #page_leftbar .i2,
+  #page_leftbar [class^='i'] {
+    max-width: 32px;
+    max-height: 32px;
+  }
+
+  /*
+   * Vùng chạm 40px của quy tắc trên đúng cho màn dựng, nhưng ở đây nó ăn hết
+   * chiều cao. 32px vẫn trên ngưỡng bấm được, và người dùng đang cầm ngang nên
+   * ngón cái với dễ hơn.
+   */
+  .btn,
+  input[type='button'],
+  input[type='submit'],
+  input[type='text'],
+  input[type='password'],
+  select,
+  .form-control,
+  .form-select {
+    min-height: 32px;
+  }
+
+  /* Hộp thoại phải cuộn được, nếu không nút OK/Cancel nằm ngoài màn hình. */
+  .modal-content,
+  #dialog,
+  .dialogBox {
+    max-height: 90vh;
+    overflow-y: auto;
   }
 }
 

@@ -11,19 +11,29 @@ khi nhúng ở tab **Điều khiển**.
 .\deploy.ps1 -Remove               # gỡ, về diện mạo gốc
 ```
 
-**Không cần khởi động lại MeshCentral** — file tĩnh đọc theo từng request.
+Sau đó **hai bước nữa** — thiếu bước nào cũng trông như theme không có tác dụng.
 
-### Nhưng PHẢI xoá cache trình duyệt
+### 1. Khởi động lại MeshCentral (quyền admin)
 
-MeshCentral gửi `Cache-Control: max-age=14400` cho `custom.css`, nên trình duyệt
-giữ bản cũ **4 tiếng**. Không ép nạp lại thì trông y hệt như theme không có tác
-dụng — đây là bẫy đã làm mất thời gian một lần.
+```powershell
+Restart-Service "meshcentral.exe"
+```
+
+MeshCentral giữ nội dung file web trong bộ nhớ. Đã đo: sửa file trên đĩa
+(16.635 byte) xong, server vẫn trả bản cũ 9.871 byte với `Last-Modified` của hôm
+trước.
+
+**Lần cài đầu tiên không cần bước này** — file gốc rỗng nên chưa có gì để giữ.
+Đó là lý do lần đầu chạy được ngay, còn lần cập nhật thì không.
+
+### 2. Xoá cache trình duyệt
 
 ```
 Ctrl + Shift + R
 ```
 
-Hoặc DevTools → Network → tick *Disable cache* → F5.
+`custom.css` được gửi kèm `Cache-Control: max-age=14400`, nên trình duyệt giữ
+bản cũ **4 tiếng**. Hoặc DevTools → Network → tick *Disable cache* → F5.
 
 **Cách kiểm chứng theme đã vào chưa** (dán vào Console):
 

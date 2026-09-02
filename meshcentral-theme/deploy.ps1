@@ -90,13 +90,18 @@ foreach ($file in $files) {
 Write-Host ""
 Write-Host "Đã chép $($files.Count) file sang $target" -ForegroundColor Green
 Write-Host ""
-Write-Host "KHÔNG cần khởi động lại MeshCentral — file tĩnh đọc theo từng request." -ForegroundColor Cyan
+Write-Host "Còn HAI bước nữa, thiếu bước nào cũng thành 'theme không có tác dụng':" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "NHƯNG PHẢI xoá cache trình duyệt:" -ForegroundColor Yellow
-Write-Host "  MeshCentral gửi 'Cache-Control: max-age=14400' (4 giờ) cho custom.css."
-Write-Host "  Trình duyệt sẽ dùng bản cũ đúng 4 tiếng nếu không ép nạp lại."
+Write-Host "  1. Khởi động lại MeshCentral (PowerShell quyền admin):" -ForegroundColor Cyan
+Write-Host "     Restart-Service 'meshcentral.exe'"
 Write-Host ""
-Write-Host "  Ctrl+Shift+R        — nạp lại bỏ qua cache" -ForegroundColor Cyan
-Write-Host "  hoặc mở DevTools > Network > tick 'Disable cache' rồi F5"
+Write-Host "     MeshCentral giữ nội dung file web trong bộ nhớ. Đã đo: sửa file"
+Write-Host "     trên đĩa xong, server vẫn trả bản cũ với Last-Modified của hôm"
+Write-Host "     trước. Lần đầu cài không cần bước này vì file gốc rỗng, chưa có"
+Write-Host "     gì để giữ."
 Write-Host ""
-Write-Host "Không làm bước này thì trông như theme không có tác dụng." -ForegroundColor Yellow
+Write-Host "  2. Xoá cache trình duyệt: Ctrl+Shift+R" -ForegroundColor Cyan
+Write-Host "     custom.css được gửi kèm 'Cache-Control: max-age=14400' (4 giờ)."
+Write-Host ""
+Write-Host "  Kiểm chứng trong Console — ra số > 0 là theme đã vào:" -ForegroundColor DarkGray
+Write-Host "     [...document.styleSheets].find(s=>(s.href||'').includes('custom.css')).cssRules.length"
