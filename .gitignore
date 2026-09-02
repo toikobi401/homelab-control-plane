@@ -87,6 +87,10 @@ $RECYCLE.BIN/
 .claude/settings.local.json
 .playwright-mcp/
 
+# Nhật ký làm việc nội bộ — chứa ghi chú quá trình và chi tiết hạ tầng riêng.
+# Giữ ở máy, không đưa lên bản public.
+PROGRESS.md
+
 # File tĩnh của frontend, sinh ra bởi 'npm run build' rồi chép vào đây.
 # Là artifact build, không phải mã nguồn.
 backend/Hub.Api/wwwroot/

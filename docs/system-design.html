@@ -1,0 +1,261 @@
+<title>Device Hub System Design</title>
+<style>
+:root{
+  --bg:#f7f7f5; --panel:#ffffff; --ink:#1b1b18; --muted:#6b6a63;
+  --line:#c9c7bd; --accent:#b3541e; --accent-soft:#f1e3d3;
+  --api:#3b5a8a; --api-soft:#e4ecf7;
+  --mesh:#5a7d4a; --mesh-soft:#e9f1e2;
+  --ext:#8a4a8a; --ext-soft:#f3e6f3;
+  --warn:#a33; --warn-soft:#f6e2e2;
+  --code-bg:#efeee8;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#17181a; --panel:#202225; --ink:#e8e6e1; --muted:#9a988f;
+    --line:#45443d; --accent:#e08a4f; --accent-soft:#3a2c1e;
+    --api:#8fb0e6; --api-soft:#1c2a3d;
+    --mesh:#9fc98a; --mesh-soft:#1f2a1a;
+    --ext:#cf9ecf; --ext-soft:#2e1f2e;
+    --warn:#e08585; --warn-soft:#3a2020;
+    --code-bg:#2a2b2d;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#17181a; --panel:#202225; --ink:#e8e6e1; --muted:#9a988f;
+  --line:#45443d; --accent:#e08a4f; --accent-soft:#3a2c1e;
+  --api:#8fb0e6; --api-soft:#1c2a3d;
+  --mesh:#9fc98a; --mesh-soft:#1f2a1a;
+  --ext:#cf9ecf; --ext-soft:#2e1f2e;
+  --warn:#e08585; --warn-soft:#3a2020;
+  --code-bg:#2a2b2d;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);margin:0;font-family:-apple-system,"Segoe UI",Inter,sans-serif;line-height:1.55}
+.wrap{max-width:980px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.5rem;margin:0 0 4px}
+.sub{color:var(--muted);font-size:.92rem;margin:0 0 28px}
+h2{font-size:1.05rem;margin:44px 0 4px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+p.lede{color:var(--muted);font-size:.92rem;margin:6px 0 18px;max-width:64ch}
+figure{margin:0 0 8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+figcaption{color:var(--muted);font-size:.85rem;margin-top:10px;max-width:70ch}
+svg{width:100%;height:auto;display:block}
+text{fill:currentColor;font-family:-apple-system,"Segoe UI",Inter,sans-serif}
+.lbl{font-size:11.5px}
+.lbl-sm{font-size:10.5px}
+.title{font-size:13px;font-weight:600}
+.mono{font-family:"SF Mono",Consolas,monospace;font-size:10.5px}
+.node{stroke:currentColor;stroke-width:1.4;fill:var(--panel)}
+.node-api{fill:var(--api-soft)}
+.node-mesh{fill:var(--mesh-soft)}
+.node-ext{fill:var(--ext-soft)}
+.node-warn{fill:var(--warn-soft)}
+.node-accent{fill:var(--accent-soft)}
+.edge{stroke:currentColor;stroke-width:1.3;fill:none}
+.edge-api{stroke:var(--api)}
+.edge-mesh{stroke:var(--mesh)}
+.edge-ext{stroke:var(--ext)}
+.edge-warn{stroke:var(--warn)}
+.edge-dash{stroke-dasharray:4 3}
+.muted-line{stroke:var(--muted);opacity:.55}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;color:var(--muted);margin-right:14px}
+.dot{width:9px;height:9px;border-radius:2px;display:inline-block}
+.legend{margin:10px 0 26px;display:flex;flex-wrap:wrap;gap:4px 0}
+footer{color:var(--muted);font-size:.8rem;margin-top:50px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+
+<div class="wrap">
+  <h1>Device Hub — System Design</h1>
+  <p class="sub">Kiến trúc thực tế đã build, tính đến 2026‑09‑02. Đối chiếu <code>CONTEXT.md</code> (luật).</p>
+
+  <div class="legend">
+    <span class="chip"><span class="dot" style="background:var(--api)"></span>Hub.Api (.NET, code của ta)</span>
+    <span class="chip"><span class="dot" style="background:var(--mesh)"></span>MeshCentral (bên thứ ba, tự host)</span>
+    <span class="chip"><span class="dot" style="background:var(--ext)"></span>Dịch vụ ngoài (MangaDex, Cloudflare)</span>
+    <span class="chip"><span class="dot" style="background:var(--warn)"></span>Ranh giới bảo mật / điểm dễ sai</span>
+  </div>
+
+  <!-- ============ FIGURE 1: NETWORK TOPOLOGY ============ -->
+  <h2>1. Hai đường vào, hội tụ ở Hub.Api — trừ một ngoại lệ</h2>
+  <p class="lede">Cả hai đường vào cùng một backend. Nhưng MeshCentral rẽ ra một nhánh không đi qua Hub.Api chút nào — xem mũi tên tô đậm.</p>
+  <figure>
+    <svg viewBox="0 0 920 430" role="img" aria-label="Sơ đồ mạng: thiết bị vào qua Tailnet hoặc Cloudflare Tunnel, hội tụ ở Hub.Api; riêng MeshCentral được truy cập thẳng bằng iframe, bỏ qua Hub.Api">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+        <marker id="ah-mesh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--mesh)"/>
+        </marker>
+      </defs>
+
+      <!-- Devices -->
+      <rect x="20" y="30" width="150" height="46" rx="6" class="node"/>
+      <text x="95" y="49" text-anchor="middle" class="lbl title">Điện thoại</text>
+      <text x="95" y="64" text-anchor="middle" class="lbl-sm" fill="var(--muted)">đã cài Tailscale</text>
+
+      <rect x="20" y="110" width="150" height="46" rx="6" class="node"/>
+      <text x="95" y="129" text-anchor="middle" class="lbl title">Desktop ở ngoài</text>
+      <text x="95" y="144" text-anchor="middle" class="lbl-sm" fill="var(--muted)">chưa vào tailnet</text>
+
+      <!-- Path A: tailnet -->
+      <path d="M170,53 H330" class="edge edge-mesh" marker-end="url(#ah-mesh)"/>
+      <text x="250" y="45" text-anchor="middle" class="lbl-sm">wss trực tiếp</text>
+
+      <path d="M170,53 H260 V210 H330" class="edge edge-api" marker-end="url(#ah)"/>
+      <text x="200" y="200" text-anchor="middle" class="lbl-sm">100.x.y.z : 443</text>
+
+      <!-- Path B: cloudflare -->
+      <rect x="330" y="130" width="150" height="46" rx="6" class="node node-ext"/>
+      <text x="405" y="149" text-anchor="middle" class="lbl title">Cloudflare</text>
+      <text x="405" y="164" text-anchor="middle" class="lbl-sm" fill="var(--muted)">Tunnel edge</text>
+
+      <path d="M170,133 L330,153" class="edge edge-ext" marker-end="url(#ah)"/>
+
+      <!-- cloudflared reaching back -->
+      <rect x="330" y="230" width="150" height="46" rx="6" class="node node-warn"/>
+      <text x="405" y="249" text-anchor="middle" class="lbl title">cloudflared</text>
+      <text x="405" y="264" text-anchor="middle" class="lbl-sm" fill="var(--muted)">trên máy hub</text>
+
+      <path d="M405,176 V230" class="edge edge-ext edge-dash" marker-end="url(#ah)"/>
+      <text x="480" y="205" class="lbl-sm">gọi RA — không mở cổng</text>
+
+      <path d="M405,230 V210 H520" class="edge edge-warn" marker-end="url(#ah)"/>
+      <text x="460" y="220" class="lbl-sm" fill="var(--warn)">127.0.0.1 : 7190</text>
+
+      <!-- Hub.Api -->
+      <rect x="520" y="185" width="170" height="50" rx="6" class="node node-api"/>
+      <text x="605" y="205" text-anchor="middle" class="lbl title">Hub.Api</text>
+      <text x="605" y="220" text-anchor="middle" class="lbl-sm" fill="var(--muted)">bind mode: Tailnet / Tunnel</text>
+
+      <!-- SQLite -->
+      <rect x="770" y="185" width="120" height="50" rx="6" class="node"/>
+      <text x="830" y="205" text-anchor="middle" class="lbl title">SQLite</text>
+      <text x="830" y="220" text-anchor="middle" class="lbl-sm" fill="var(--muted)">auth, devices</text>
+      <path d="M690,210 H770" class="edge edge-api" marker-end="url(#ah)"/>
+
+      <!-- MeshCentral, bypass -->
+      <rect x="520" y="30" width="170" height="50" rx="6" class="node node-mesh"/>
+      <text x="605" y="50" text-anchor="middle" class="lbl title">MeshCentral</text>
+      <text x="605" y="65" text-anchor="middle" class="lbl-sm" fill="var(--muted)">tự host, port 4430</text>
+
+      <path d="M330,53 H520" class="edge edge-mesh" stroke-width="2.4" marker-end="url(#ah-mesh)"/>
+      <text x="425" y="43" text-anchor="middle" class="lbl-sm" fill="var(--mesh)" font-weight="600">iframe — bỏ qua Hub.Api</text>
+
+      <!-- Downstream: MeshAgent on target machines -->
+      <rect x="770" y="30" width="120" height="50" rx="6" class="node node-mesh"/>
+      <text x="830" y="50" text-anchor="middle" class="lbl title">MeshAgent</text>
+      <text x="830" y="65" text-anchor="middle" class="lbl-sm" fill="var(--muted)">trên PC/laptop</text>
+      <path d="M690,55 H770" class="edge edge-mesh" marker-end="url(#ah-mesh)"/>
+
+      <!-- Note box -->
+      <rect x="330" y="300" width="560" height="110" rx="8" class="node" stroke="var(--warn)" stroke-dasharray="3 3"/>
+      <text x="350" y="325" class="lbl" fill="var(--warn)" font-weight="600">Chế độ bind quyết định ranh giới bảo mật</text>
+      <text x="350" y="348" class="lbl-sm mono">Tailnet: bind 100.x.y.z — chỉ tailnet gọi tới</text>
+      <text x="350" y="366" class="lbl-sm mono">Tunnel: bind 127.0.0.1 — chỉ cloudflared (cùng máy) gọi tới</text>
+      <text x="350" y="390" class="lbl-sm" fill="var(--muted)">Sai chế độ = phơi hub ra Wi‑Fi nhà hoặc ra Internet trần. Kiểm chứng lại mỗi lần đổi phần mạng.</text>
+    </svg>
+    <figcaption>Hai lối vào (tailnet, Cloudflare Tunnel) hội tụ ở <code>Hub.Api</code> — nhưng MeshCentral có một lối riêng: trình duyệt nhúng iframe thẳng vào MeshCentral, <code>Hub.Api</code> không đứng giữa phiên điều khiển máy. <code>cloudflared</code> chỉ <em>gọi ra</em>, nên router nhà không mở cổng nào.</figcaption>
+  </figure>
+
+  <!-- ============ FIGURE 2: FOUR DATA PATHS ============ -->
+  <h2>2. Bốn năng lực, bốn cơ chế khác nhau</h2>
+  <p class="lede">Trông giống nhau từ danh sách tính năng, nhưng đi bốn đường khác hẳn. Hàng in đậm là hàng dễ hiểu lầm nhất.</p>
+  <figure>
+    <svg viewBox="0 0 920 300" role="img" aria-label="Bốn luồng dữ liệu: xác thực và hiện diện đi qua Hub.Api tới SQLite; đọc truyện đi qua Hub.Api proxy tới MangaDex; điều khiển máy đi thẳng từ trình duyệt tới MeshCentral bỏ qua Hub.Api; MeshCentral nói chuyện với MeshAgent trên máy đích qua kênh riêng">
+      <defs>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- Row labels -->
+      <text x="10" y="38" class="lbl title">Xác thực,</text>
+      <text x="10" y="52" class="lbl title">hiện diện</text>
+      <rect x="130" y="20" width="110" height="40" rx="5" class="node node-api"/>
+      <text x="185" y="45" text-anchor="middle" class="lbl">Hub.Api</text>
+      <path d="M240,40 H320" class="edge edge-api" marker-end="url(#ah2)"/>
+      <rect x="320" y="20" width="100" height="40" rx="5" class="node"/>
+      <text x="370" y="45" text-anchor="middle" class="lbl">SQLite</text>
+      <text x="440" y="45" class="lbl-sm" fill="var(--muted)">dữ liệu riêng của hub</text>
+
+      <line x1="0" y1="85" x2="920" y2="85" class="muted-line"/>
+
+      <text x="10" y="118" class="lbl title">Đọc truyện</text>
+      <text x="10" y="132" class="lbl-sm" fill="var(--muted)">(MangaDex)</text>
+      <rect x="130" y="100" width="110" height="40" rx="5" class="node node-api"/>
+      <text x="185" y="125" text-anchor="middle" class="lbl">Hub.Api</text>
+      <text x="185" y="153" text-anchor="middle" class="lbl-sm" fill="var(--muted)">Hub.Manga</text>
+      <path d="M240,120 H320" class="edge edge-api" marker-end="url(#ah2)"/>
+      <text x="280" y="112" text-anchor="middle" class="lbl-sm">proxy</text>
+      <rect x="320" y="100" width="120" height="40" rx="5" class="node node-ext"/>
+      <text x="380" y="125" text-anchor="middle" class="lbl">MangaDex</text>
+      <text x="460" y="120" class="lbl-sm" fill="var(--muted)">trình duyệt không nói</text>
+      <text x="460" y="134" class="lbl-sm" fill="var(--muted)">được HTTP/3 — Hub.Api che</text>
+
+      <line x1="0" y1="165" x2="920" y2="165" class="muted-line"/>
+
+      <text x="10" y="205" class="lbl title" font-weight="700">Điều khiển</text>
+      <text x="10" y="219" class="lbl title" font-weight="700">máy, màn hình,</text>
+      <text x="10" y="233" class="lbl title" font-weight="700">file</text>
+      <rect x="130" y="185" width="110" height="55" rx="5" class="node" stroke="var(--muted)" stroke-dasharray="3 3" fill="none"/>
+      <text x="185" y="208" text-anchor="middle" class="lbl-sm" fill="var(--muted)">Hub.Api</text>
+      <text x="185" y="223" text-anchor="middle" class="lbl-sm" fill="var(--muted)">(không tham gia)</text>
+      <path d="M90,212 V255 H320" class="edge edge-mesh" stroke-width="2.4" marker-end="url(#ah2)"/>
+      <text x="200" y="255" text-anchor="middle" class="lbl-sm" fill="var(--mesh)" font-weight="600">iframe thẳng — bỏ qua Hub.Api</text>
+      <rect x="320" y="185" width="120" height="55" rx="5" class="node node-mesh"/>
+      <text x="380" y="208" text-anchor="middle" class="lbl">MeshCentral</text>
+      <text x="380" y="224" text-anchor="middle" class="lbl-sm" fill="var(--muted)">trong iframe</text>
+      <path d="M440,212 H560" class="edge edge-mesh" marker-end="url(#ah2)"/>
+      <rect x="560" y="185" width="130" height="55" rx="5" class="node node-mesh"/>
+      <text x="625" y="208" text-anchor="middle" class="lbl">MeshAgent</text>
+      <text x="625" y="224" text-anchor="middle" class="lbl-sm" fill="var(--muted)">trên máy đích</text>
+      <text x="720" y="200" class="lbl-sm" fill="var(--warn)">Hub.Api chết →</text>
+      <text x="720" y="214" class="lbl-sm" fill="var(--warn)">phiên đang mở KHÔNG</text>
+      <text x="720" y="228" class="lbl-sm" fill="var(--warn)">bị ngắt</text>
+    </svg>
+    <figcaption>Ba hàng đầu đều qua <code>Hub.Api</code>; hàng thứ ba <strong>không</strong> — đây là điểm hay bị đọc nhầm nếu chỉ xem danh sách năng lực. Trang "Điều khiển" trong frontend chỉ là khung chứa; toàn bộ giao tiếp thật diễn ra giữa trình duyệt và MeshCentral trực tiếp.</figcaption>
+  </figure>
+
+  <!-- ============ FIGURE 3: AGENT ROUTING ============ -->
+  <h2>3. Agent chọn đường: vì sao không khai cả hai địa chỉ</h2>
+  <p class="lede">MeshCentral chỉ sinh một địa chỉ công khai cho mọi agent. Cách "an toàn hơn" — khai cả hai — thật ra ngẫu nhiên hoá đường đi.</p>
+  <figure>
+    <svg viewBox="0 0 920 250" role="img" aria-label="So sánh hai cách cấu hình agent: khai một địa chỉ do script đo được so với khai cả hai địa chỉ khiến MeshAgent bốc thăm ngẫu nhiên">
+      <defs>
+        <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- Left: correct approach -->
+      <text x="20" y="24" class="lbl title" fill="var(--mesh)">✓ Dùng: đo rồi ghi một địa chỉ</text>
+      <rect x="20" y="40" width="150" height="42" rx="5" class="node"/>
+      <text x="95" y="66" text-anchor="middle" class="lbl">mesh-agent-route.ps1</text>
+      <path d="M170,61 H260" class="edge edge-mesh" marker-end="url(#ah3)"/>
+      <text x="215" y="53" text-anchor="middle" class="lbl-sm">đo cổng 4430 thật</text>
+      <rect x="20" y="110" width="290" height="70" rx="6" class="node node-mesh"/>
+      <text x="35" y="132" class="lbl-sm mono">.msh:</text>
+      <text x="35" y="150" class="lbl-sm mono">MeshServer=wss://hub.tailnet-example…</text>
+      <text x="35" y="168" class="lbl-sm mono">(đúng MỘT địa chỉ)</text>
+      <path d="M95,82 V110" class="edge edge-mesh" marker-end="url(#ah3)"/>
+      <text x="20" y="205" class="lbl-sm" fill="var(--muted)">→ luôn đi đường gần nhất đã đo được</text>
+
+      <!-- divider -->
+      <line x1="450" y1="10" x2="450" y2="230" class="muted-line"/>
+
+      <!-- Right: naive approach -->
+      <text x="480" y="24" class="lbl title" fill="var(--warn)">✗ Không dùng: khai cả hai</text>
+      <rect x="480" y="110" width="330" height="90" rx="6" class="node node-warn"/>
+      <text x="495" y="132" class="lbl-sm mono">MeshServer=wss://a,wss://b</text>
+      <text x="495" y="150" class="lbl-sm mono">ServerID=hash-a,hash-b</text>
+      <text x="495" y="172" class="lbl-sm" fill="var(--warn)">agentcore.c: util_random(4,…)</text>
+      <text x="495" y="188" class="lbl-sm" fill="var(--warn)">→ bốc ngẫu nhiên, KHÔNG ưu tiên</text>
+      <text x="480" y="222" class="lbl-sm" fill="var(--muted)">→ máy trong tailnet vẫn đi vòng ra Internet ~50% số lần</text>
+    </svg>
+    <figcaption>Trực giác "khai cả hai địa chỉ cho chắc" sai vì MeshAgent chọn ngẫu nhiên giữa các địa chỉ đã khai (đọc từ mã nguồn <code>agentcore.c</code>), không ưu tiên đường gần. Script đo kết nối thật rồi ghi đúng một địa chỉ, chạy lại mỗi khi máy đổi mạng.</figcaption>
+  </figure>
+
+  <footer>
+    Nguồn: <code>CONTEXT.md</code> §2–§6, <code>docs/meshcentral-setup.md</code>. Vẽ 2026‑09‑02.
+  </footer>
+</div>
