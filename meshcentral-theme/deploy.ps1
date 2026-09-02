@@ -6,20 +6,27 @@
     Theme sống trong repo (có lịch sử Git, khôi phục được, cài lại máy khác được)
     nhưng MeshCentral đọc từ thư mục cài của nó. Script này nối hai chỗ đó.
 
-    Đích là `node_modules/meshcentral/public/` — nơi MeshCentral thật sự phục vụ
-    file tĩnh. `custom.css` và `custom.js` ở đó vốn RỖNG và được nạp sẵn trong
-    mọi trang: chúng sinh ra để người dùng ghi đè.
+    Chép vào CẢ HAI đích, vì mỗi chỗ có vai trò riêng:
 
-    VÌ SAO KHÔNG DÙNG `meshcentral-web/`: thư mục override đó KHÔNG hoạt động
-    trên cài đặt này. Đã kiểm chứng bằng thực nghiệm — đặt một file thử vào
-    `meshcentral-web/public/styles/` rồi gọi qua HTTP thì server trả 404, dù
-    đường dẫn, quyền đọc và thứ tự middleware đều đúng. Nghi do service chạy từ
-    `WinService\daemon` nên `__dirname` mà MeshCentral dùng để dò override lệch
-    khỏi chỗ ta đặt file.
+      1. `meshcentral-web/public/`  — thư mục override chính thức. MeshCentral
+         ƯU TIÊN chỗ này, và `npm update` KHÔNG đụng tới.
+      2. `node_modules/meshcentral/public/` — nơi phục vụ mặc định. Là dự phòng
+         nếu override vì lý do nào đó không được nhận.
 
-    ĐÁNH ĐỔI: `npm update meshcentral` sẽ ghi đè hai file này. Chạy lại script
-    sau mỗi lần cập nhật. Script tự lưu bản gốc (.orig) lần đầu để `-Remove`
-    trả về đúng nguyên trạng.
+    LỊCH SỬ MỘT KẾT LUẬN SAI: có lúc script này chỉ chép vào `node_modules` vì
+    một phép thử cho thấy file mới trong `meshcentral-web` trả 404. Kết luận đó
+    SAI — override vẫn hoạt động, chỉ là MeshCentral chốt danh sách file lúc
+    khởi động nên file thêm sau không được nhận cho tới lần restart kế tiếp.
+    Bằng chứng: sau restart, ETag server trả về là `2f35` = 12085 byte, khớp
+    đúng kích thước file trong `meshcentral-web`, không phải bản trong
+    `node_modules`.
+
+    Hệ quả thực tế: chép một chỗ mà quên chỗ kia thì override cũ sẽ che mất bản
+    mới — đúng cái bẫy đã làm mất một lượt sửa.
+
+    ĐÁNH ĐỔI: `npm update meshcentral` ghi đè bản trong `node_modules` (bản
+    trong `meshcentral-web` thì không). Chạy lại script sau mỗi lần cập nhật.
+    Script tự lưu bản gốc (.orig) lần đầu để `-Remove` trả về đúng nguyên trạng.
 
 .PARAMETER MeshCentralPath
     Thư mục cài MeshCentral. Mặc định D:\App\MeshCentral.
@@ -40,68 +47,89 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $source = Join-Path $PSScriptRoot 'public'
-$target = Join-Path $MeshCentralPath 'node_modules\meshcentral\public'
 
 if (-not (Test-Path $MeshCentralPath)) {
     throw "Không tìm thấy MeshCentral ở '$MeshCentralPath'. Dùng -MeshCentralPath để chỉ chỗ khác."
 }
 
-if (-not (Test-Path $target)) {
-    throw "Không thấy '$target'. MeshCentral đã cài đúng chưa?"
+$nodeModules = Join-Path $MeshCentralPath 'node_modules\meshcentral\public'
+if (-not (Test-Path $nodeModules)) {
+    throw "Không thấy '$nodeModules'. MeshCentral đã cài đúng chưa?"
 }
+
+# Cả hai đích. `meshcentral-web` được MeshCentral ưu tiên, nên phải đứng trước —
+# bỏ sót nó là để bản cũ ở đó che mất bản mới.
+$targets = @(
+    (Join-Path $MeshCentralPath 'meshcentral-web\public'),
+    $nodeModules
+)
 
 $files = Get-ChildItem -Recurse $source -File
 
 if ($Remove) {
     $restored = 0
+    foreach ($target in $targets) {
+        foreach ($file in $files) {
+            $relative = $file.FullName.Substring($source.Length).TrimStart('\')
+            $destination = Join-Path $target $relative
+            $backup = "$destination.orig"
+
+            if (Test-Path $backup) {
+                # Có bản gốc: trả lại đúng nội dung đó. MeshCentral trông đợi
+                # hai file này TỒN TẠI (nó nạp chúng vô điều kiện) nên xoá trắng
+                # sẽ thành 404.
+                Copy-Item $backup $destination -Force
+                Remove-Item -Force $backup
+                $restored++
+            }
+            elseif ((Test-Path $destination) -and $target -ne $nodeModules) {
+                # Trong `meshcentral-web` thì không có bản gốc để trả — thư mục
+                # này hoàn toàn do ta tạo. Xoá là đúng: MeshCentral tự rơi về
+                # bản trong node_modules.
+                Remove-Item -Force $destination
+                $restored++
+            }
+        }
+    }
+    Write-Host "Đã gỡ theme khỏi $restored file. Khởi động lại MeshCentral." -ForegroundColor Yellow
+    return
+}
+
+foreach ($target in $targets) {
     foreach ($file in $files) {
         $relative = $file.FullName.Substring($source.Length).TrimStart('\')
         $destination = Join-Path $target $relative
         $backup = "$destination.orig"
 
-        # Trả lại đúng nội dung gốc, không phải xoá trắng: MeshCentral trông đợi
-        # hai file này TỒN TẠI (nó nạp chúng vô điều kiện). Xoá đi sẽ thành 404.
-        if (Test-Path $backup) {
-            Copy-Item $backup $destination -Force
-            Remove-Item -Force $backup
-            $restored++
+        # Lưu bản gốc MỘT lần duy nhất, và chỉ trong node_modules (chỗ có file
+        # gốc của MeshCentral). Chạy script lần hai không được đè bản sao lưu
+        # trữ bằng chính theme của ta — làm thế là mất đường lui.
+        if ($target -eq $nodeModules -and (Test-Path $destination) -and -not (Test-Path $backup)) {
+            Copy-Item $destination $backup
         }
-    }
-    Write-Host "Đã khôi phục $restored file gốc. Khởi động lại MeshCentral." -ForegroundColor Yellow
-    return
-}
 
-foreach ($file in $files) {
-    $relative = $file.FullName.Substring($source.Length).TrimStart('\')
-    $destination = Join-Path $target $relative
-    $backup = "$destination.orig"
-
-    # Lưu bản gốc MỘT lần duy nhất. Chạy script lần hai không được đè bản sao
-    # lưu trữ bằng chính theme của ta — làm thế là mất đường lui.
-    if ((Test-Path $destination) -and -not (Test-Path $backup)) {
-        Copy-Item $destination $backup
+        New-Item -ItemType Directory -Force (Split-Path $destination -Parent) | Out-Null
+        Copy-Item $file.FullName $destination -Force
     }
 
-    New-Item -ItemType Directory -Force (Split-Path $destination -Parent) | Out-Null
-    Copy-Item $file.FullName $destination -Force
-    Write-Host "  $relative" -ForegroundColor DarkGray
+    Write-Host "  $($files.Count) file -> $target" -ForegroundColor DarkGray
 }
 
 Write-Host ""
-Write-Host "Đã chép $($files.Count) file sang $target" -ForegroundColor Green
+Write-Host "Đã chép vào cả hai đích." -ForegroundColor Green
 Write-Host ""
 Write-Host "Còn HAI bước nữa, thiếu bước nào cũng thành 'theme không có tác dụng':" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "  1. Khởi động lại MeshCentral (PowerShell quyền admin):" -ForegroundColor Cyan
 Write-Host "     Restart-Service 'meshcentral.exe'"
 Write-Host ""
-Write-Host "     MeshCentral giữ nội dung file web trong bộ nhớ. Đã đo: sửa file"
-Write-Host "     trên đĩa xong, server vẫn trả bản cũ với Last-Modified của hôm"
-Write-Host "     trước. Lần đầu cài không cần bước này vì file gốc rỗng, chưa có"
-Write-Host "     gì để giữ."
+Write-Host "     MeshCentral chốt danh sách file web lúc khởi động. File THÊM MỚI"
+Write-Host "     không được nhận cho tới lần restart kế tiếp; file GHI ĐÈ lên chỗ"
+Write-Host "     đã có thì đọc lại được ngay."
 Write-Host ""
 Write-Host "  2. Xoá cache trình duyệt: Ctrl+Shift+R" -ForegroundColor Cyan
-Write-Host "     custom.css được gửi kèm 'Cache-Control: max-age=14400' (4 giờ)."
 Write-Host ""
-Write-Host "  Kiểm chứng trong Console — ra số > 0 là theme đã vào:" -ForegroundColor DarkGray
-Write-Host "     [...document.styleSheets].find(s=>(s.href||'').includes('custom.css')).cssRules.length"
+Write-Host "  Kiểm chứng — so kích thước server trả về với file trong repo:" -ForegroundColor DarkGray
+Write-Host "     (Invoke-WebRequest 'https://<mesh>/styles/custom.css?v=1' -UseBasicParsing).Content.Length"
+Write-Host ""
+Write-Host "     Lệch nhiều nghĩa là đang phục vụ bản cũ ở đích còn lại." -ForegroundColor DarkGray

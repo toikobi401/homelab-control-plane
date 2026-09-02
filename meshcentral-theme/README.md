@@ -19,12 +19,13 @@ Sau đó **hai bước nữa** — thiếu bước nào cũng trông như theme 
 Restart-Service "meshcentral.exe"
 ```
 
-MeshCentral giữ nội dung file web trong bộ nhớ. Đã đo: sửa file trên đĩa
-(16.635 byte) xong, server vẫn trả bản cũ 9.871 byte với `Last-Modified` của hôm
-trước.
+MeshCentral **chốt danh sách file web lúc khởi động**:
 
-**Lần cài đầu tiên không cần bước này** — file gốc rỗng nên chưa có gì để giữ.
-Đó là lý do lần đầu chạy được ngay, còn lần cập nhật thì không.
+- File **thêm mới** → không được nhận cho tới lần restart kế tiếp.
+- File **ghi đè** lên chỗ đã có → đọc lại được ngay, không cần restart.
+
+Nên lần đầu tạo `meshcentral-web/` thì bắt buộc restart; các lần cập nhật sau
+chỉ cần `Ctrl+Shift+R`.
 
 ### 2. Xoá cache trình duyệt
 
@@ -54,19 +55,39 @@ Nhờ vậy ta thắng về độ ưu tiên CSS mà gần như không cần `!im
 Hai file này trong `node_modules/meshcentral/public/` vốn **rỗng** — chúng sinh
 ra để người dùng ghi đè.
 
-### Vì sao không dùng `meshcentral-web/`
+### Chép vào cả hai đích
 
-Đó là thư mục override chính thức, và lẽ ra là chỗ đúng. Nhưng **nó không hoạt
-động trên cài đặt này** — đã kiểm chứng: đặt một file thử vào
-`meshcentral-web/public/styles/` rồi gọi qua HTTP thì server trả **404**, dù
-đường dẫn, quyền đọc và thứ tự middleware đều đúng.
+`deploy.ps1` chép vào **hai** chỗ, mỗi chỗ một vai trò:
 
-Nghi do service chạy từ `WinService\daemon\meshcentral.exe` nên `__dirname` mà
-MeshCentral dùng để dò override lệch khỏi chỗ ta đặt file.
+| Đích | Vai trò |
+|---|---|
+| `meshcentral-web/public/` | Thư mục override chính thức. MeshCentral **ưu tiên** chỗ này, và `npm update` không đụng. |
+| `node_modules/meshcentral/public/` | Nơi phục vụ mặc định. Dự phòng nếu override không được nhận. |
 
-**Đánh đổi:** `npm update meshcentral` sẽ ghi đè hai file. Chạy lại `deploy.ps1`
-sau mỗi lần cập nhật. Script tự lưu bản gốc (`.orig`) lần đầu nên `-Remove` trả
-về đúng nguyên trạng.
+**Một kết luận sai đã sửa.** Có lúc script chỉ chép vào `node_modules` vì phép
+thử cho thấy file mới trong `meshcentral-web` trả 404. Kết luận đó **sai** —
+override vẫn hoạt động; MeshCentral chỉ **chốt danh sách file lúc khởi động**,
+nên file *thêm mới* không được nhận cho tới lần restart kế tiếp.
+
+Bằng chứng dứt điểm: sau restart, ETag server trả về là `4d3e` = **19774 byte**,
+khớp đúng file trong repo. Trước khi sửa script, ETag là `2f35` = 12085 byte —
+đúng kích thước bản cũ nằm trong `meshcentral-web`, tức là **override đang che
+mất bản mới trong `node_modules`**.
+
+Đó là lý do phải chép cả hai: quên một chỗ thì bản cũ ở đó thắng.
+
+**Đánh đổi:** `npm update meshcentral` ghi đè bản trong `node_modules` (bản
+trong `meshcentral-web` thì không). Chạy lại `deploy.ps1` sau mỗi lần cập nhật.
+
+### Mẹo chẩn đoán
+
+So kích thước server trả về với file trong repo:
+
+```powershell
+(Invoke-WebRequest 'https://<mesh>/styles/custom.css?v=1' -UseBasicParsing).Content.Length
+```
+
+Lệch nhiều nghĩa là đang phục vụ bản cũ ở đích còn lại.
 
 ### Vì sao không phải `sitestyle: 4`
 
