@@ -74,6 +74,12 @@ $HubBindMode = 'Tunnel'
 $CfServiceName = 'Cloudflared'
 $CloudflaredExe = 'C:\Program Files (x86)\cloudflared\cloudflared.exe'
 
+# Service chạy dưới LocalSystem, không thấy được C:\Users\<tên>\.cloudflared.
+# cloudflared tìm config trong thư mục .cloudflared của chính tài khoản đang
+# chạy, nên config phải nằm ở hồ sơ hệ thống.
+$CfUserConfigDir = Join-Path $env:USERPROFILE '.cloudflared'
+$CfSystemConfigDir = 'C:\Windows\System32\config\systemprofile\.cloudflared'
+
 $MeshServiceName = 'meshcentral.exe'
 
 function Write-Step($Message) { Write-Host "  $Message" -ForegroundColor Gray }
@@ -242,21 +248,49 @@ if ($Action -eq 'install') {
             exit 1
         }
 
-        Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
+        if (-not (Test-Path (Join-Path $CfUserConfigDir 'config.yml'))) {
+            Write-Bad "Không thấy config: $CfUserConfigDir\config.yml"
+            exit 1
+        }
+
+        Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
 
-        # cloudflared tự biết cách cài service của nó — dùng lệnh sẵn có thay
-        # vì tự dựng bằng sc.exe (§2.3).
-        & $CloudflaredExe service install 2>&1 | ForEach-Object { Write-Step $_ }
-
-        $cf = Get-Service -Name $CfServiceName -ErrorAction SilentlyContinue
-        if ($cf) {
-            Set-Service -Name $CfServiceName -StartupType Automatic
-            if ($cf.Status -ne 'Running') { Start-Service -Name $CfServiceName }
-            Write-Good 'Cloudflared: đã cài và chạy'
-        } else {
-            Write-Warn 'Cloudflared: cài xong nhưng không thấy service — kiểm tra lại bằng: Get-Service *cloudflare*'
+        # Chép config và credentials sang hồ sơ hệ thống — xem chú thích ở
+        # $CfSystemConfigDir.
+        if (-not (Test-Path $CfSystemConfigDir)) {
+            New-Item -ItemType Directory -Path $CfSystemConfigDir -Force | Out-Null
         }
+        Copy-Item (Join-Path $CfUserConfigDir 'config.yml') $CfSystemConfigDir -Force
+        Copy-Item (Join-Path $CfUserConfigDir '*.json') $CfSystemConfigDir -Force
+        Write-Step 'Cloudflared: đã chép config sang hồ sơ hệ thống'
+
+        if (Get-Service -Name $CfServiceName -ErrorAction SilentlyContinue) {
+            Stop-Service -Name $CfServiceName -Force -ErrorAction SilentlyContinue
+            & sc.exe delete $CfServiceName | Out-Null
+            Start-Sleep -Seconds 2
+            Write-Step 'Cloudflared: gỡ service cũ để cài lại'
+        }
+
+        # KHÔNG dùng `cloudflared service install`: nó tạo service với binPath
+        # chỉ có đường dẫn exe, thiếu `tunnel run`. Service khởi động lên chỉ in
+        # trợ giúp rồi thoát, trạng thái Stopped mà không có lỗi gì rõ ràng.
+        # Đã gặp thật.
+        $cfConfig = Join-Path $CfSystemConfigDir 'config.yml'
+        $cfBinPath = '"' + $CloudflaredExe + '" --config "' + $cfConfig + '" tunnel run'
+
+        # New-Service chứ không sc.exe: PowerShell tách chuỗi có khoảng trắng
+        # thành nhiều tham số trước khi sc.exe nhận được, gây lỗi 1639.
+        New-Service -Name $CfServiceName `
+            -BinaryPathName $cfBinPath `
+            -DisplayName 'Cloudflare Tunnel' `
+            -Description 'Cloudflare Tunnel cho Device Hub' `
+            -StartupType Automatic | Out-Null
+
+        & sc.exe failure $CfServiceName reset= 86400 actions= restart/5000/restart/10000/restart/30000 | Out-Null
+
+        Start-Service -Name $CfServiceName
+        Write-Good 'Cloudflared: đã cài và chạy'
     }
 
     Write-Host ''
@@ -285,7 +319,8 @@ if ($Action -eq 'uninstall') {
 
     if (Should-Do 'cloudflared') {
         if (Get-Service -Name $CfServiceName -ErrorAction SilentlyContinue) {
-            & $CloudflaredExe service uninstall 2>&1 | ForEach-Object { Write-Step $_ }
+            Stop-Service -Name $CfServiceName -Force -ErrorAction SilentlyContinue
+            & sc.exe delete $CfServiceName | Out-Null
             Write-Good 'Cloudflared: đã gỡ'
         } else {
             Write-Step 'Cloudflared: không có service để gỡ'

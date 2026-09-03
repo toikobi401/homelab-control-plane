@@ -119,6 +119,42 @@ dotnet publish backend/Hub.Api/Hub.Api.csproj -c Release `
 `restart` và `install` đều tự phát hiện `publish-new`, dừng service, tráo thư
 mục, rồi chạy lại.
 
+## Hai bẫy khi cài service cho cloudflared
+
+**1. `cloudflared service install` tạo service thiếu tham số.**
+
+Lệnh sẵn có của cloudflared đặt `binPath` chỉ gồm đường dẫn exe, không có
+`tunnel run`. Service khởi động lên chỉ in trợ giúp rồi thoát:
+
+```
+use `cloudflared tunnel run` to start tunnel f962dbe6-...
+```
+
+Trạng thái hiện `Stopped` mà Event Log không ghi lỗi gì — rất khó đoán. Script
+tự dựng service với binPath đầy đủ thay vì dùng lệnh đó.
+
+**2. LocalSystem không thấy config trong thư mục người dùng.**
+
+Service chạy dưới `LocalSystem`, còn config nằm ở `C:\Users\<tên>\.cloudflared`.
+cloudflared tìm config trong `.cloudflared` của **chính tài khoản đang chạy**,
+nên phải chép sang hồ sơ hệ thống:
+
+```
+C:\Windows\System32\config\systemprofile\.cloudflared\
+```
+
+Script chép cả `config.yml` lẫn file credentials `.json`.
+
+⚠️ Sửa `config.yml` ở thư mục người dùng thì phải chạy lại `install` để chép
+sang, nếu không service vẫn dùng bản cũ.
+
+**Ghi chú về `sc.exe`:** tạo service bằng `sc.exe create` với binPath có khoảng
+trắng sẽ hỏng — PowerShell tách chuỗi thành nhiều tham số trước khi `sc.exe`
+nhận được, gây lỗi `1639` (cú pháp sai). Dùng `New-Service` thì chuỗi giữ
+nguyên vẹn.
+
+---
+
 ## Vì sao hub cần biến môi trường cấp máy
 
 Hub đọc chế độ bind từ `HUB_BIND_MODE` (xem
