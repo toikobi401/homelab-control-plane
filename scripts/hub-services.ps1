@@ -194,6 +194,10 @@ if ($Action -eq 'status') {
         } else {
             Write-Bad "Dữ liệu     : $dataDir (KHÔNG có hub.db)"
         }
+        if (-not (Test-Path (Join-Path $dataDir 'appsettings.Production.json'))) {
+            Write-Bad 'Cấu hình    : thiếu appsettings.Production.json'
+            Write-Host '  /devices sẽ trống và /remote không nhúng được MeshCentral.'
+        }
     } else {
         Write-Bad 'Dữ liệu     : chưa đặt HUB_DATA_DIR'
         Write-Host '  Service chạy dưới LocalSystem sẽ dùng systemprofile và tưởng lần đầu chạy.'
@@ -265,6 +269,31 @@ if ($Action -eq 'install') {
         if (-not (Test-Path (Join-Path $HubDataDir 'hub.db'))) {
             Write-Warn 'Hub: chưa có hub.db ở thư mục này — hub sẽ hỏi đặt mật khẩu mới.'
             Write-Host  '  Có dữ liệu cũ thì chép hub.db vào trước khi mở giao diện.'
+        }
+
+        # Bí mật (token Tailscale, địa chỉ MeshCentral) nằm trong user-secrets,
+        # mà user-secrets gắn với hồ sơ người dùng — LocalSystem không đọc được.
+        # Thiếu chúng thì /devices trống và /remote không biết nhúng gì.
+        $hubConfigFile = Join-Path $HubDataDir 'appsettings.Production.json'
+        if (-not (Test-Path $hubConfigFile)) {
+            Write-Warn "Hub: chưa có $hubConfigFile"
+            Write-Host  '  /devices sẽ trống và /remote không nhúng được MeshCentral.'
+            Write-Host  '  Xem docs/services.md — mục "Thiết bị biến mất sau khi cài service".'
+        } else {
+            # File chứa token Tailscale. Thư mục trên ổ D mặc định cho Users đọc,
+            # nên bỏ thừa kế và chỉ giữ SYSTEM, Administrators, chủ sở hữu.
+            $acl = Get-Acl $hubConfigFile
+            $acl.SetAccessRuleProtection($true, $false)
+            foreach ($rule in @($acl.Access)) { $acl.RemoveAccessRule($rule) | Out-Null }
+            foreach ($who in 'NT AUTHORITY\SYSTEM', 'BUILTIN\Administrators', "$env:USERDOMAIN\$env:USERNAME") {
+                try {
+                    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($who, 'FullControl', 'Allow')))
+                } catch {
+                    Write-Step "Bỏ qua quyền cho ${who}: $($_.Exception.Message)"
+                }
+            }
+            Set-Acl -Path $hubConfigFile -AclObject $acl
+            Write-Step 'Hub: đã siết quyền đọc appsettings.Production.json'
         }
 
         # Tự chạy lại khi sập: sau 5s, 10s, rồi 30s. Bộ đếm reset sau 1 ngày.

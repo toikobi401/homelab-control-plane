@@ -39,16 +39,35 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 // làm gì, nên vẫn dùng được `dotnet run` lúc phát triển.
 builder.Host.UseWindowsService();
 
-// CONTEXT.md §4: backend không được phơi ra Wi-Fi nhà. Cách thực thi khác nhau
-// giữa chạy thẳng trên máy và chạy trong container — xem BindMode.
-var bindMode = NetworkBinding.ResolveMode(builder.Configuration);
-NetworkBinding.Apply(builder, bindMode);
-
 // §3.3: đường dẫn dữ liệu đọc từ cấu hình, không hardcode. Trong container là
 // /data (volume); trên Windows lúc dev rơi về LocalApplicationData.
 var dataDirectory = HubPaths.ResolveDataDirectory(
     builder.Configuration[HubPaths.DataDirectoryKey]);
 Directory.CreateDirectory(dataDirectory);
+
+// Nạp cấu hình đặt cạnh dữ liệu, cho trường hợp chạy như Windows Service.
+//
+// Lúc phát triển, bí mật (token Tailscale, địa chỉ MeshCentral) nằm trong
+// user-secrets — nhưng user-secrets gắn với HỒ SƠ NGƯỜI DÙNG, mà service chạy
+// dưới LocalSystem nên không đọc được. Hệ quả: /devices trống vì thiếu
+// credentials Tailscale, và /remote không biết nhúng MeshCentral ở đâu.
+//
+// Đặt file cạnh hub.db thay vì trong thư mục cài đặt: nó sống sót qua mỗi lần
+// publish đè, và sao lưu cùng chỗ với dữ liệu.
+//
+// optional: true — không có file thì bỏ qua, để `dotnet run` lúc dev vẫn dùng
+// user-secrets như cũ.
+//
+// PHẢI đứng trước ResolveMode: chế độ Tailnet đọc HUB_TLS_CERT từ chính file này.
+builder.Configuration.AddJsonFile(
+    Path.Combine(dataDirectory, "appsettings.Production.json"),
+    optional: true,
+    reloadOnChange: false);
+
+// CONTEXT.md §4: backend không được phơi ra Wi-Fi nhà. Cách thực thi khác nhau
+// giữa chạy thẳng trên máy và chạy trong container — xem BindMode.
+var bindMode = NetworkBinding.ResolveMode(builder.Configuration);
+NetworkBinding.Apply(builder, bindMode);
 
 var databasePath = Path.Combine(dataDirectory, "hub.db");
 

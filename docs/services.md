@@ -213,6 +213,65 @@ curl.exe -s https://hub.youtubecontentgen.io.vn/api/auth/status
 Cùng gốc vấn đề với cloudflared ở trên: **service không chạy dưới tài khoản của
 bạn**, nên mọi đường dẫn suy ra từ hồ sơ người dùng đều trỏ sai chỗ.
 
+## Thiết bị biến mất sau khi cài service
+
+**Triệu chứng:** `/devices` trống và `/remote` không nhúng được MeshCentral, dù
+hub đăng nhập bình thường.
+
+**Không phải mất dữ liệu.** `/devices` đọc trực tiếp từ **Tailscale API**, không
+từ `hub.db` (bảng `Devices` đã bị xoá ở migration `RemoveDeviceControlTables`
+khi chuyển sang MeshCentral). Nó cần credentials Tailscale để gọi được.
+
+Bí mật nằm trong **user-secrets**, mà user-secrets gắn với hồ sơ người dùng:
+
+```
+C:\Users\<tên>\AppData\Roaming\Microsoft\UserSecrets\<id>\secrets.json
+```
+
+Service chạy dưới `LocalSystem` nên không đọc được file này. Sáu giá trị bị mất:
+
+| Khoá | Thiếu thì sao |
+|---|---|
+| `Tailscale:ClientId` / `ClientSecret` | `/devices` trống |
+| `MeshCentral:Url` / `PublicUrl` | `/remote` không nhúng được |
+| `HUB_TLS_CERT` / `HUB_TLS_KEY` | chế độ bind Tailnet không chạy |
+
+**Cách sửa:** đặt `appsettings.Production.json` cạnh `hub.db`. `Program.cs` nạp
+thêm nguồn cấu hình này:
+
+```csharp
+builder.Configuration.AddJsonFile(
+    Path.Combine(dataDirectory, "appsettings.Production.json"),
+    optional: true, reloadOnChange: false);
+```
+
+`optional: true` nên `dotnet run` lúc dev vẫn dùng user-secrets như cũ.
+
+Sinh file từ user-secrets (khoá phẳng `A:B` thành lồng nhau):
+
+```json
+{
+  "Tailscale": { "ClientId": "...", "ClientSecret": "..." },
+  "MeshCentral": {
+    "Url": "https://<tên-máy>.<tailnet>.ts.net:4430",
+    "PublicUrl": "https://mesh.tenmien-cua-ban.com"
+  },
+  "HUB_TLS_CERT": "D:\App\HubData\certs\<tên>.crt",
+  "HUB_TLS_KEY": "D:\App\HubData\certs\<tên>.key"
+}
+```
+
+⚠️ Đường dẫn chứng chỉ phải trỏ vào thư mục dữ liệu, **không** vào
+`%LOCALAPPDATA%` — service không đọc được chỗ đó. Chép cả thư mục `certs` sang.
+
+⚠️ **File này chứa token Tailscale.** `install` tự bỏ thừa kế quyền và chỉ giữ
+SYSTEM, Administrators, chủ sở hữu. Nó nằm ngoài repo nên không bị commit nhầm.
+
+Đặt cạnh `hub.db` chứ không trong thư mục cài đặt: nó sống sót qua mỗi lần
+publish đè, và sao lưu cùng chỗ với dữ liệu.
+
+`hub-services.ps1 status` báo đỏ nếu thiếu file này.
+
 ## Vì sao wwwroot phải nằm cạnh binary
 
 `Program.cs` đặt content root theo vị trí binary chứ không theo thư mục làm việc:
