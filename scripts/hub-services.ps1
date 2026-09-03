@@ -67,6 +67,15 @@ $HubExe = Join-Path $HubPublishDir 'Hub.Api.exe'
 # rồi tráo vào đúng chỗ — xem Sync-HubPublish.
 $HubStagingDir = Join-Path $RepoRoot 'backend\Hub.Api\bin\Release\net10.0\publish-new'
 
+# Thư mục dữ liệu (hub.db, chứng chỉ). PHẢI khai tường minh: service chạy dưới
+# LocalSystem, mà mặc định HubPaths dùng LocalApplicationData — với LocalSystem
+# đó là C:\Windows\System32\config\systemprofile\AppData\Local, không phải thư
+# mục của người dùng. Không khai thì hub thấy thư mục trống và tưởng lần đầu
+# chạy, đòi đặt lại mật khẩu trong khi dữ liệu cũ vẫn còn nguyên chỗ khác.
+#
+# Đặt ở ổ D theo hiện trạng máy này (ổ C chật, MeshCentral cũng ở D).
+$HubDataDir = 'D:\App\HubData'
+
 # Tunnel: hub nhận HTTP trên loopback 7190, TLS kết thúc ở biên Cloudflare.
 # Xem Hosting/NetworkBinding.cs và CONTEXT.md §4a.
 $HubBindMode = 'Tunnel'
@@ -178,6 +187,18 @@ if ($Action -eq 'status') {
     Show-One $CfServiceName   'Cloudflared  '
     Show-One $MeshServiceName 'MeshCentral  '
 
+    $dataDir = [Environment]::GetEnvironmentVariable('HUB_DATA_DIR', 'Machine')
+    if ($dataDir) {
+        if (Test-Path (Join-Path $dataDir 'hub.db')) {
+            Write-Good "Dữ liệu     : $dataDir"
+        } else {
+            Write-Bad "Dữ liệu     : $dataDir (KHÔNG có hub.db)"
+        }
+    } else {
+        Write-Bad 'Dữ liệu     : chưa đặt HUB_DATA_DIR'
+        Write-Host '  Service chạy dưới LocalSystem sẽ dùng systemprofile và tưởng lần đầu chạy.'
+    }
+
     Write-Host ''
     Show-Port 7190 'Hub        '
     Show-Port 4430 'MeshCentral'
@@ -234,6 +255,17 @@ if ($Action -eq 'install') {
         # không thừa hưởng biến của phiên đăng nhập nên phải đặt ở cấp máy.
         [Environment]::SetEnvironmentVariable('HUB_BIND_MODE', $HubBindMode, 'Machine')
         Write-Step "Hub: HUB_BIND_MODE=$HubBindMode (cấp máy)"
+
+        if (-not (Test-Path $HubDataDir)) {
+            New-Item -ItemType Directory -Path $HubDataDir -Force | Out-Null
+        }
+        [Environment]::SetEnvironmentVariable('HUB_DATA_DIR', $HubDataDir, 'Machine')
+        Write-Step "Hub: HUB_DATA_DIR=$HubDataDir (cấp máy)"
+
+        if (-not (Test-Path (Join-Path $HubDataDir 'hub.db'))) {
+            Write-Warn 'Hub: chưa có hub.db ở thư mục này — hub sẽ hỏi đặt mật khẩu mới.'
+            Write-Host  '  Có dữ liệu cũ thì chép hub.db vào trước khi mở giao diện.'
+        }
 
         # Tự chạy lại khi sập: sau 5s, 10s, rồi 30s. Bộ đếm reset sau 1 ngày.
         & sc.exe failure $HubServiceName reset= 86400 actions= restart/5000/restart/10000/restart/30000 | Out-Null
@@ -315,6 +347,9 @@ if ($Action -eq 'uninstall') {
         }
         # Biến môi trường cấp máy để lại cũng vô hại, nhưng dọn cho sạch.
         [Environment]::SetEnvironmentVariable('HUB_BIND_MODE', $null, 'Machine')
+        # HUB_DATA_DIR để lại: gỡ nó đi thì lần cài sau hub quay về thư mục mặc
+        # định và lại tưởng lần đầu chạy. Dữ liệu trong thư mục đó không bị đụng.
+        Write-Step "Hub: giữ HUB_DATA_DIR=$HubDataDir và dữ liệu trong đó"
     }
 
     if (Should-Do 'cloudflared') {

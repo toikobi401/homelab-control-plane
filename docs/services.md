@@ -170,6 +170,49 @@ Thiếu biến này thì hub rơi về `Localhost`, không mở cổng 7190, và
 
 ⚠️ Tên biến là `HUB_BIND_MODE` — có gạch dưới giữa `BIND` và `MODE`.
 
+## Hub "mất dữ liệu" sau khi cài service
+
+**Triệu chứng:** hub hiện *"Lần đầu chạy hub. Đặt mật khẩu ngay trên máy chạy
+hệ thống"* dù trước đó đã có mật khẩu.
+
+**Dữ liệu không mất.** `HubPaths.ResolveDataDirectory` mặc định dùng
+`LocalApplicationData`, mà giá trị đó phụ thuộc tài khoản đang chạy:
+
+| Chạy dưới | LocalApplicationData |
+|---|---|
+| Người dùng `ledat` | `C:\Users\ledat\AppData\Local` |
+| **LocalSystem (service)** | `C:\Windows\System32\config\systemprofile\AppData\Local` |
+
+Service nhìn vào thư mục thứ hai, thấy trống, nên tưởng lần đầu chạy. `hub.db`
+cũ vẫn nằm nguyên ở thư mục người dùng.
+
+⚠️ **Đừng bấm đặt mật khẩu mới ở màn hình đó** — nó tạo một DB rỗng thứ hai, và
+sau đó phải gộp thủ công.
+
+**Cách sửa:** khai `HUB_DATA_DIR` ở cấp máy. `hub-services.ps1 install` tự làm,
+trỏ về `D:\App\HubData`.
+
+Chuyển dữ liệu cũ sang trước khi cài (chép cả thư mục `certs` nếu có):
+
+```powershell
+New-Item -ItemType Directory D:\App\HubData -Force
+Copy-Item "$env:LOCALAPPDATA\Hub\hub.db" D:\App\HubData\
+Copy-Item "$env:LOCALAPPDATA\Hub\certs" D:\App\HubData\ -Recurse
+```
+
+`hub-services.ps1 status` in thư mục dữ liệu và cảnh báo nếu không thấy
+`hub.db` ở đó — kiểm tra dòng này trước khi mở giao diện.
+
+Xác nhận hub đọc đúng DB:
+
+```powershell
+curl.exe -s https://hub.youtubecontentgen.io.vn/api/auth/status
+# {"passwordConfigured":true}  <- doc duoc DB cu
+```
+
+Cùng gốc vấn đề với cloudflared ở trên: **service không chạy dưới tài khoản của
+bạn**, nên mọi đường dẫn suy ra từ hồ sơ người dùng đều trỏ sai chỗ.
+
 ## Vì sao wwwroot phải nằm cạnh binary
 
 `Program.cs` đặt content root theo vị trí binary chứ không theo thư mục làm việc:
