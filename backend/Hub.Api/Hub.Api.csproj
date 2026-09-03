@@ -28,6 +28,12 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <!-- Chạy như Windows Service: bắt tay với Service Control Manager để
+         Windows biết tiến trình đã sẵn sàng. Thiếu nó thì service kẹt mãi ở
+         "Start Pending" dù hub vẫn phục vụ được, và Stop/Restart-Service treo.
+         Trên Linux (NAS sau này) gói này không làm gì — an toàn để tham chiếu
+         vô điều kiện. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.11" />
   </ItemGroup>
 
 </Project>

@@ -81,6 +81,44 @@ Restart-Service meshcentral.exe
 
 ---
 
+## Vì sao hub cần UseWindowsService()
+
+`Program.cs` gọi:
+
+```csharp
+builder.Host.UseWindowsService();
+```
+
+Thiếu dòng này thì service **kẹt mãi ở `Start Pending`**: hub vẫn khởi động và
+phục vụ bình thường (cổng mở, `/health` trả 200), nhưng nó không bao giờ báo
+"đã sẵn sàng" cho Service Control Manager. Hậu quả:
+
+- `Stop-Service` và `Restart-Service` treo cho tới khi hết giờ
+- Windows có thể tự giết tiến trình vì tưởng nó khởi động hỏng
+- `status` hiện `Start Pending` vô thời hạn dù mọi thứ đang chạy
+
+Nếu gặp trạng thái này (bản hub cũ), thoát ra bằng cách giết thẳng tiến trình —
+`hub-services.ps1` có `Stop-HubCompletely` làm đúng việc đó.
+
+Gói `Microsoft.Extensions.Hosting.WindowsServices` an toàn trên Linux: chạy
+ngoài Windows thì nó không làm gì, nên `dotnet run` lúc phát triển và container
+trên NAS đều không bị ảnh hưởng.
+
+## Cập nhật hub khi service đang chạy
+
+Không publish đè lên `Hub.Api.exe` mà service đang giữ được. Publish ra thư mục
+tạm rồi để script tráo vào:
+
+```powershell
+dotnet publish backend/Hub.Api/Hub.Api.csproj -c Release `
+    -o backend/Hub.Api/bin/Release/net10.0/publish-new
+
+.\scripts\hub-services.ps1 restart -Only hub    # Administrator
+```
+
+`restart` và `install` đều tự phát hiện `publish-new`, dừng service, tráo thư
+mục, rồi chạy lại.
+
 ## Vì sao hub cần biến môi trường cấp máy
 
 Hub đọc chế độ bind từ `HUB_BIND_MODE` (xem

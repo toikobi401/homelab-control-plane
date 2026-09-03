@@ -28,6 +28,17 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     ContentRootPath = AppContext.BaseDirectory
 });
 
+// Bắt tay với Service Control Manager khi chạy như Windows Service (§3: hub
+// phải tự chạy lại sau khi khởi động máy).
+//
+// Thiếu dòng này thì service kẹt mãi ở "Start Pending" — hub vẫn phục vụ bình
+// thường, nhưng Windows không bao giờ biết nó đã sẵn sàng, nên Stop-Service và
+// Restart-Service treo cho tới khi hết giờ. Đã gặp thật.
+//
+// Tự nhận biết môi trường: chạy từ dòng lệnh hoặc trong container thì không
+// làm gì, nên vẫn dùng được `dotnet run` lúc phát triển.
+builder.Host.UseWindowsService();
+
 // CONTEXT.md §4: backend không được phơi ra Wi-Fi nhà. Cách thực thi khác nhau
 // giữa chạy thẳng trên máy và chạy trong container — xem BindMode.
 var bindMode = NetworkBinding.ResolveMode(builder.Configuration);

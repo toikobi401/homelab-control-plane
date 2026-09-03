@@ -60,7 +60,12 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 
 $HubServiceName = 'HubApi'
 $HubDisplayName = 'Device Hub API'
-$HubExe = Join-Path $RepoRoot 'backend\Hub.Api\bin\Release\net10.0\publish\Hub.Api.exe'
+$HubPublishDir = Join-Path $RepoRoot 'backend\Hub.Api\bin\Release\net10.0\publish'
+$HubExe = Join-Path $HubPublishDir 'Hub.Api.exe'
+
+# Thư mục tạm khi publish lúc service đang giữ file exe. Script sẽ dừng service
+# rồi tráo vào đúng chỗ — xem Sync-HubPublish.
+$HubStagingDir = Join-Path $RepoRoot 'backend\Hub.Api\bin\Release\net10.0\publish-new'
 
 # Tunnel: hub nhận HTTP trên loopback 7190, TLS kết thúc ở biên Cloudflare.
 # Xem Hosting/NetworkBinding.cs và CONTEXT.md §4a.
@@ -117,6 +122,47 @@ function Should-Do($Which) {
     return (-not $Only) -or ($Only -eq $Which)
 }
 
+<#
+    Dừng hub dứt điểm, kể cả khi service kẹt ở "Start Pending".
+
+    Bản hub thiếu UseWindowsService() không bao giờ báo "đã sẵn sàng" cho
+    Service Control Manager, nên Stop-Service treo tới khi hết giờ. Giết thẳng
+    tiến trình là cách duy nhất thoát khỏi trạng thái đó.
+#>
+function Stop-HubCompletely {
+    $service = Get-Service -Name $HubServiceName -ErrorAction SilentlyContinue
+    if ($service -and $service.Status -ne 'Stopped') {
+        # Bọc try vì chính lệnh này là cái treo khi service kẹt.
+        try {
+            Stop-Service -Name $HubServiceName -Force -ErrorAction Stop -WarningAction SilentlyContinue
+        } catch {
+            Write-Step 'Hub: Stop-Service không xong (service kẹt), giết tiến trình'
+        }
+    }
+
+    Get-Process Hub.Api -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+}
+
+<#
+    Tráo bản publish mới vào chỗ service đang dùng.
+
+    Cần thiết vì không publish đè lên file exe mà service đang giữ được. Quy
+    trình: publish ra publish-new, dừng service, tráo, chạy lại.
+#>
+function Sync-HubPublish {
+    if (-not (Test-Path $HubStagingDir)) { return }
+
+    Write-Step 'Hub: thấy bản publish mới, đang tráo vào'
+    Stop-HubCompletely
+
+    if (Test-Path $HubPublishDir) {
+        Remove-Item $HubPublishDir -Recurse -Force
+    }
+    Move-Item $HubStagingDir $HubPublishDir
+    Write-Step 'Hub: đã dùng bản publish mới'
+}
+
 # ---------------------------------------------------------------- status
 
 if ($Action -eq 'status') {
@@ -150,7 +196,7 @@ if ($Action -eq 'install') {
     Write-Host "`nCài dịch vụ`n" -ForegroundColor Cyan
 
     if (Should-Do 'hub') {
-        if (-not (Test-Path $HubExe)) {
+        if ((-not (Test-Path $HubExe)) -and (-not (Test-Path $HubStagingDir))) {
             Write-Bad "Chưa có bản publish: $HubExe"
             Write-Host ''
             Write-Host '  Chạy trước:'
@@ -160,10 +206,10 @@ if ($Action -eq 'install') {
             exit 1
         }
 
-        # Bản chạy tay giữ cổng 7190 thì service khởi động sẽ chết vì
-        # "address already in use".
-        Get-Process Hub.Api -ErrorAction SilentlyContinue | Stop-Process -Force
-        Start-Sleep -Seconds 2
+        # Bản chạy tay (hoặc service cũ) giữ cổng 7190 thì service khởi động sẽ
+        # chết vì "address already in use".
+        Stop-HubCompletely
+        Sync-HubPublish
 
         $existing = Get-Service -Name $HubServiceName -ErrorAction SilentlyContinue
         if ($existing) {
@@ -255,6 +301,9 @@ if ($Action -eq 'uninstall') {
 if ($Action -eq 'restart') {
     Assert-Admin
     Write-Host "`nChạy lại dịch vụ`n" -ForegroundColor Cyan
+
+    # Publish lại rồi restart là luồng thường gặp nhất sau khi sửa code.
+    if ((Should-Do 'hub') -and (Test-Path $HubStagingDir)) { Sync-HubPublish }
 
     foreach ($pair in @(@{ Which = 'hub'; Name = $HubServiceName; Label = 'Hub' },
                         @{ Which = 'cloudflared'; Name = $CfServiceName; Label = 'Cloudflared' })) {
