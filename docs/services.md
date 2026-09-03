@@ -81,6 +81,65 @@ Restart-Service meshcentral.exe
 
 ---
 
+## MeshCentral im lặng sau reboot — lỗi 502
+
+**Triệu chứng:** sau khi khởi động lại máy, `mesh.` trả **502** (khác 1033).
+Service `meshcentral.exe` hiện `Running`, nhưng **không cổng nào lắng nghe**.
+
+502 và 1033 nói hai chuyện khác nhau:
+
+| Mã | Nghĩa |
+|---|---|
+| **1033** | cloudflared không chạy — không tunnel nào kết nối tới Cloudflare |
+| **502** | tunnel có kết nối, nhưng không tới được dịch vụ phía sau |
+
+**Nguyên nhân — cuộc đua khởi động.** MeshCentral khai `portbind` là địa chỉ
+tailnet (`100.121.227.63`). Sau reboot cả `Tailscale` lẫn `meshcentral.exe` đều
+`AUTO_START` nên chạy song song. MeshCentral bind vào một địa chỉ **chưa tồn
+tại**, thất bại, và **không thử lại** — mã nguồn không có cơ chế retry.
+
+Điều khiến nó khó đoán: MeshCentral **không sập**. Nó chạy tiếp bình thường, chỉ
+là không phục vụ gì. Service vẫn `Running`, log không có lỗi.
+
+### Cách sửa
+
+```powershell
+.\scripts\hub-services.ps1 fix-mesh-startup    # Administrator
+```
+
+Bốn lớp, mỗi lớp bịt một khoảng trống của lớp trước:
+
+| Lớp | Làm gì | Không đủ vì |
+|---|---|---|
+| 1. Phụ thuộc `Tailscale` | Tailscale khởi động trước | chỉ đảm bảo đã KHỞI ĐỘNG, không phải đã GÁN XONG địa chỉ |
+| 2. Delayed auto-start | hoãn ~2 phút | thời gian gán địa chỉ không cố định |
+| 3. Recovery action | chạy lại khi tiến trình sập | MeshCentral **không sập** khi bind hỏng |
+| 4. Canh chừng cổng | kiểm tra 4430 thật, tối đa 5 phút | — |
+
+Lớp 4 là lớp duy nhất phát hiện được đúng trạng thái hỏng này. Nó là scheduled
+task `MeshCentral-Watchdog` chạy lúc khởi động dưới `SYSTEM`, gọi
+`D:\App\MeshCentral\mesh-watchdog.ps1`.
+
+### Chữa nhanh khi đang gặp
+
+```powershell
+Restart-Service meshcentral.exe -Force
+```
+
+Khởi động lại lúc Tailscale đã sẵn sàng thì bind được ngay.
+
+### Phân biệt với bẫy cổng 4431
+
+Hai lỗi khác nhau, cùng triệu chứng "mesh không vào được":
+
+- **4431 đang mở** → có hai bản MeshCentral, bản sau bị đẩy sang cổng kế tiếp
+- **không cổng nào mở** → cuộc đua khởi động ở mục này
+
+`hub-services.ps1 status` phân biệt được: nó in dòng `MeshCentral (cổng 4430)`
+và cảnh báo riêng nếu thấy 4431.
+
+---
+
 ## Vì sao hub cần UseWindowsService()
 
 `Program.cs` gọi:

@@ -22,6 +22,7 @@
     uninstall  — dừng và gỡ cả hai service
     status     — xem trạng thái ba service (kể cả MeshCentral)
     restart    — chạy lại cả hai, dùng sau khi cập nhật cấu hình
+    fix-mesh-startup — sửa cuộc đua khởi động giữa MeshCentral và Tailscale
 
 .PARAMETER Only
     Chỉ tác động một service: 'hub' hoặc 'cloudflared'.
@@ -47,7 +48,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('install', 'uninstall', 'status', 'restart')]
+    [ValidateSet('install', 'uninstall', 'status', 'restart', 'fix-mesh-startup')]
     [string]$Action = 'status',
 
     [ValidateSet('hub', 'cloudflared')]
@@ -416,6 +417,76 @@ if ($Action -eq 'restart') {
         }
     }
 
+    Write-Host ''
+    exit 0
+}
+
+# ------------------------------------------------- fix-mesh-startup
+
+if ($Action -eq 'fix-mesh-startup') {
+    Assert-Admin
+    Write-Host "`nSửa cuộc đua khởi động MeshCentral <-> Tailscale`n" -ForegroundColor Cyan
+
+    # MeshCentral khai portbind = địa chỉ tailnet. Sau reboot cả hai service đều
+    # AUTO_START nên chạy song song — MeshCentral bind vào một địa chỉ chưa tồn
+    # tại, thất bại, và KHÔNG thử lại (mã nguồn không có cơ chế retry). Service
+    # vẫn hiện Running nhưng không cổng nào mở, tunnel trả 502. Đã gặp thật.
+    #
+    # Bốn lớp, mỗi lớp bịt một khoảng trống của lớp trước.
+
+    # Lớp 1: Tailscale phải khởi động trước.
+    # Chỉ đảm bảo nó ĐÃ KHỞI ĐỘNG, không đảm bảo đã GÁN XONG địa chỉ.
+    & sc.exe config $MeshServiceName depend= Tailscale | Out-Null
+    Write-Step 'Lớp 1: phụ thuộc Tailscale'
+
+    # Lớp 2: hoãn khoảng hai phút sau các service tự động khác.
+    & sc.exe config $MeshServiceName start= delayed-auto | Out-Null
+    Write-Step 'Lớp 2: delayed auto-start'
+
+    # Lớp 3: tự chạy lại nếu tiến trình SẬP.
+    & sc.exe failure $MeshServiceName reset= 86400 actions= restart/30000/restart/60000/restart/120000 | Out-Null
+    Write-Step 'Lớp 3: tự chạy lại khi tiến trình sập'
+
+    # Lớp 4: canh chừng cổng.
+    # Ba lớp trên chưa đủ: khi bind hỏng MeshCentral KHÔNG SẬP — nó chạy tiếp,
+    # chỉ là không mở cổng nào, nên recovery action không bao giờ kích hoạt.
+    $watchdogPath = 'D:\App\MeshCentral\mesh-watchdog.ps1'
+    $watchdogLines = @(
+        '# Kiem tra MeshCentral co thuc su mo cong 4430 khong; khong thi khoi dong lai.',
+        '#',
+        '# Can thiet vi khi bind that bai MeshCentral van chay (Service = Running)',
+        '# nhung khong mo cong nao, nen recovery action cua Windows khong kich hoat.',
+        '# Xem docs/services.md muc "MeshCentral im lang sau reboot".',
+        '',
+        '$port = 4430',
+        '',
+        '# Cho toi 5 phut: Tailscale can thoi gian gan dia chi sau khi may khoi dong.',
+        'for ($i = 0; $i -lt 10; $i++) {',
+        '    if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) {',
+        '        exit 0',
+        '    }',
+        '    Start-Sleep -Seconds 30',
+        '}',
+        '',
+        '# Van khong mo cong -> khoi dong lai; luc nay Tailscale chac chan da san sang.',
+        'Restart-Service ''meshcentral.exe'' -Force -ErrorAction SilentlyContinue'
+    )
+    Set-Content -Path $watchdogPath -Value $watchdogLines -Encoding UTF8
+
+    $taskName = 'MeshCentral-Watchdog'
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+
+    $taskArgs = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $watchdogPath + '"'
+    Register-ScheduledTask -TaskName $taskName `
+        -Action (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $taskArgs) `
+        -Trigger (New-ScheduledTaskTrigger -AtStartup) `
+        -Principal (New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest) `
+        -Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable) `
+        -Description 'Khoi dong lai MeshCentral neu no khong mo cong 4430 sau khi may khoi dong' | Out-Null
+    Write-Step "Lớp 4: canh chừng cổng ($taskName)"
+
+    Write-Host ''
+    Write-Good 'Xong. Kiểm chứng bằng cách khởi động lại máy.'
     Write-Host ''
     exit 0
 }
