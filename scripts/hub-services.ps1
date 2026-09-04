@@ -22,7 +22,7 @@
     uninstall  — dừng và gỡ cả hai service
     status     — xem trạng thái ba service (kể cả MeshCentral)
     restart    — chạy lại cả hai, dùng sau khi cập nhật cấu hình
-    fix-mesh-startup — sửa cuộc đua khởi động giữa MeshCentral và Tailscale
+    fix-mesh-startup — cài canh chừng để MeshCentral phục vụ được sau khi khởi động máy
 
 .PARAMETER Only
     Chỉ tác động một service: 'hub' hoặc 'cloudflared'.
@@ -427,15 +427,19 @@ if ($Action -eq 'fix-mesh-startup') {
     Assert-Admin
     Write-Host "`nSửa cuộc đua khởi động MeshCentral <-> Tailscale`n" -ForegroundColor Cyan
 
-    # MeshCentral khai portbind = địa chỉ tailnet. Sau reboot cả hai service đều
-    # AUTO_START nên chạy song song — MeshCentral bind vào một địa chỉ chưa tồn
-    # tại, thất bại, và KHÔNG thử lại (mã nguồn không có cơ chế retry). Service
-    # vẫn hiện Running nhưng không cổng nào mở, tunnel trả 502. Đã gặp thật.
+    # Sau reboot, MeshCentral kẹt TRƯỚC cả dòng log đầu tiên: tiến trình sống,
+    # service = Running, nhưng không mở cổng nào và không in gì ra log. Tunnel
+    # trả 502. Chạy tay hoặc Restart-Service thì lên ngay lập tức.
     #
-    # Bốn lớp, mỗi lớp bịt một khoảng trống của lớp trước.
+    # Đã kiểm chứng KHÔNG phải lỗi bind địa chỉ: lúc gặp lỗi, địa chỉ tailnet
+    # vẫn có mặt bình thường trên adapter. Nguyên nhân chính xác chưa rõ — nó
+    # nằm trong giai đoạn khởi động của MeshCentral khi chạy cùng lúc boot.
+    #
+    # Vì không biết gốc, cách chữa là phát hiện và khắc phục: canh cổng 4430,
+    # không mở thì restart. Ba lớp đầu là phòng xa, lớp 4 mới là lớp thật sự
+    # cứu được.
 
-    # Lớp 1: Tailscale phải khởi động trước.
-    # Chỉ đảm bảo nó ĐÃ KHỞI ĐỘNG, không đảm bảo đã GÁN XONG địa chỉ.
+    # Lớp 1: Tailscale khởi động trước. Không đủ (đã thử) nhưng vô hại.
     & sc.exe config $MeshServiceName depend= Tailscale | Out-Null
     Write-Step 'Lớp 1: phụ thuộc Tailscale'
 
@@ -447,29 +451,53 @@ if ($Action -eq 'fix-mesh-startup') {
     & sc.exe failure $MeshServiceName reset= 86400 actions= restart/30000/restart/60000/restart/120000 | Out-Null
     Write-Step 'Lớp 3: tự chạy lại khi tiến trình sập'
 
-    # Lớp 4: canh chừng cổng.
-    # Ba lớp trên chưa đủ: khi bind hỏng MeshCentral KHÔNG SẬP — nó chạy tiếp,
-    # chỉ là không mở cổng nào, nên recovery action không bao giờ kích hoạt.
+    # Lớp 4: canh chừng cổng — lớp DUY NHẤT thật sự cứu được.
+    #
+    # Ba lớp trên đã thử qua một lần reboot và KHÔNG đủ. Recovery action vô
+    # dụng vì tiến trình không sập; delayed-auto có tác dụng (service lên lúc
+    # 15:20 thay vì 15:18) nhưng MeshCentral vẫn kẹt.
     $watchdogPath = 'D:\App\MeshCentral\mesh-watchdog.ps1'
     $watchdogLines = @(
-        '# Kiem tra MeshCentral co thuc su mo cong 4430 khong; khong thi khoi dong lai.',
+        '# Canh chung MeshCentral sau khi may khoi dong.',
         '#',
-        '# Can thiet vi khi bind that bai MeshCentral van chay (Service = Running)',
-        '# nhung khong mo cong nao, nen recovery action cua Windows khong kich hoat.',
-        '# Xem docs/services.md muc "MeshCentral im lang sau reboot".',
+        '# MeshCentral chay luc boot thi ket TRUOC ca dong log dau tien: tien trinh',
+        '# song, service = Running, nhung khong mo cong nao va khong in gi. Chay tay',
+        '# hoac Restart-Service thi len ngay. Xem docs/services.md.',
         '',
         '$port = 4430',
+        '$logFile = ''D:\App\MeshCentral\watchdog.log''',
         '',
-        '# Cho toi 5 phut: Tailscale can thoi gian gan dia chi sau khi may khoi dong.',
-        'for ($i = 0; $i -lt 10; $i++) {',
-        '    if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) {',
-        '        exit 0',
-        '    }',
-        '    Start-Sleep -Seconds 30',
+        'function Write-Log($msg) {',
+        '    $line = (Get-Date -Format ''yyyy-MM-dd HH:mm:ss'') + '' - '' + $msg',
+        '    Add-Content -Path $logFile -Value $line -ErrorAction SilentlyContinue',
         '}',
         '',
-        '# Van khong mo cong -> khoi dong lai; luc nay Tailscale chac chan da san sang.',
-        'Restart-Service ''meshcentral.exe'' -Force -ErrorAction SilentlyContinue'
+        'Write-Log ''Watchdog bat dau''',
+        '',
+        '# Cho toi 3 phut de MeshCentral tu mo cong.',
+        'for ($i = 0; $i -lt 6; $i++) {',
+        '    Start-Sleep -Seconds 30',
+        '    if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) {',
+        '        Write-Log ("Cong " + $port + " da mo sau " + (($i + 1) * 30) + "s - khong can lam gi")',
+        '        exit 0',
+        '    }',
+        '}',
+        '',
+        '# Van chua mo -> restart. Toi hai lan, moi lan cho 60s.',
+        'for ($attempt = 1; $attempt -le 2; $attempt++) {',
+        '    Write-Log ("Cong " + $port + " chua mo - restart lan " + $attempt)',
+        '    Restart-Service ''meshcentral.exe'' -Force -ErrorAction SilentlyContinue',
+        '',
+        '    for ($i = 0; $i -lt 4; $i++) {',
+        '        Start-Sleep -Seconds 15',
+        '        if (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) {',
+        '            Write-Log ("Cong " + $port + " da mo sau restart lan " + $attempt)',
+        '            exit 0',
+        '        }',
+        '    }',
+        '}',
+        '',
+        'Write-Log ''That bai sau 2 lan restart - can xem thu cong'''
     )
     Set-Content -Path $watchdogPath -Value $watchdogLines -Encoding UTF8
 

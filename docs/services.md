@@ -83,8 +83,9 @@ Restart-Service meshcentral.exe
 
 ## MeshCentral im lặng sau reboot — lỗi 502
 
-**Triệu chứng:** sau khi khởi động lại máy, `mesh.` trả **502** (khác 1033).
-Service `meshcentral.exe` hiện `Running`, nhưng **không cổng nào lắng nghe**.
+**Triệu chứng:** sau khi khởi động lại máy, `mesh.` trả **502**. Service
+`meshcentral.exe` hiện `Running`, tiến trình node còn sống, nhưng **không cổng
+nào lắng nghe** và `meshcentral.out.log` **không có dòng nào mới**.
 
 502 và 1033 nói hai chuyện khác nhau:
 
@@ -93,13 +94,22 @@ Service `meshcentral.exe` hiện `Running`, nhưng **không cổng nào lắng n
 | **1033** | cloudflared không chạy — không tunnel nào kết nối tới Cloudflare |
 | **502** | tunnel có kết nối, nhưng không tới được dịch vụ phía sau |
 
-**Nguyên nhân — cuộc đua khởi động.** MeshCentral khai `portbind` là địa chỉ
-tailnet (`100.121.227.63`). Sau reboot cả `Tailscale` lẫn `meshcentral.exe` đều
-`AUTO_START` nên chạy song song. MeshCentral bind vào một địa chỉ **chưa tồn
-tại**, thất bại, và **không thử lại** — mã nguồn không có cơ chế retry.
+### Nguyên nhân gốc: chưa xác định
 
-Điều khiến nó khó đoán: MeshCentral **không sập**. Nó chạy tiếp bình thường, chỉ
-là không phục vụ gì. Service vẫn `Running`, log không có lỗi.
+Điều **đã kiểm chứng**:
+
+- MeshCentral kẹt **trước cả dòng log đầu tiên** — không phải lỗi bind cổng
+- Địa chỉ tailnet **có mặt bình thường** trên adapter lúc gặp lỗi
+- Chạy tay (`node node_modules/meshcentral`) lên ngay, không lỗi gì
+- `Restart-Service meshcentral.exe` cũng lên ngay
+- Chỉ hỏng khi khởi động **cùng lúc máy boot**
+
+Giả thuyết ban đầu — "MeshCentral bind vào địa chỉ tailnet chưa tồn tại" —
+**đã bị bác bỏ**: đặt phụ thuộc `Tailscale` và `delayed-auto` rồi vẫn hỏng
+(service lên lúc 15:20 thay vì 15:18, nhưng vẫn kẹt).
+
+Vì không biết gốc, cách chữa là **phát hiện và khắc phục** chứ không phải phòng
+ngừa.
 
 ### Cách sửa
 
@@ -107,18 +117,27 @@ là không phục vụ gì. Service vẫn `Running`, log không có lỗi.
 .\scripts\hub-services.ps1 fix-mesh-startup    # Administrator
 ```
 
-Bốn lớp, mỗi lớp bịt một khoảng trống của lớp trước:
-
-| Lớp | Làm gì | Không đủ vì |
+| Lớp | Làm gì | Kết quả thực tế |
 |---|---|---|
-| 1. Phụ thuộc `Tailscale` | Tailscale khởi động trước | chỉ đảm bảo đã KHỞI ĐỘNG, không phải đã GÁN XONG địa chỉ |
-| 2. Delayed auto-start | hoãn ~2 phút | thời gian gán địa chỉ không cố định |
-| 3. Recovery action | chạy lại khi tiến trình sập | MeshCentral **không sập** khi bind hỏng |
-| 4. Canh chừng cổng | kiểm tra 4430 thật, tối đa 5 phút | — |
+| 1. Phụ thuộc `Tailscale` | Tailscale lên trước | không đủ (đã thử) |
+| 2. Delayed auto-start | hoãn ~2 phút | không đủ (đã thử) |
+| 3. Recovery action | chạy lại khi tiến trình sập | vô dụng — nó không sập |
+| **4. Canh chừng cổng** | kiểm tra 4430, không mở thì restart | **lớp duy nhất cứu được** |
 
-Lớp 4 là lớp duy nhất phát hiện được đúng trạng thái hỏng này. Nó là scheduled
-task `MeshCentral-Watchdog` chạy lúc khởi động dưới `SYSTEM`, gọi
-`D:\App\MeshCentral\mesh-watchdog.ps1`.
+Lớp 4 là scheduled task `MeshCentral-Watchdog` chạy lúc boot dưới `SYSTEM`:
+
+- Chờ tối đa 3 phút để MeshCentral tự mở cổng
+- Vẫn không mở → `Restart-Service`, tối đa hai lần
+- Ghi lại mọi việc vào `D:\App\MeshCentral\watchdog.log`
+
+⚠️ **Kiểm tra task có thật sự tồn tại sau khi cài.** Lần đầu
+`Register-ScheduledTask` thất bại lặng lẽ (output bị `Out-Null` nuốt mất), nên
+qua một lần reboot mới phát hiện task chưa bao giờ được tạo:
+
+```powershell
+Get-ScheduledTask -TaskName MeshCentral-Watchdog | Select-Object TaskName, State
+Get-Content D:\App\MeshCentral\watchdog.log -Tail 5
+```
 
 ### Chữa nhanh khi đang gặp
 
@@ -126,14 +145,12 @@ task `MeshCentral-Watchdog` chạy lúc khởi động dưới `SYSTEM`, gọi
 Restart-Service meshcentral.exe -Force
 ```
 
-Khởi động lại lúc Tailscale đã sẵn sàng thì bind được ngay.
-
 ### Phân biệt với bẫy cổng 4431
 
 Hai lỗi khác nhau, cùng triệu chứng "mesh không vào được":
 
 - **4431 đang mở** → có hai bản MeshCentral, bản sau bị đẩy sang cổng kế tiếp
-- **không cổng nào mở** → cuộc đua khởi động ở mục này
+- **không cổng nào mở** → lỗi khởi động ở mục này
 
 `hub-services.ps1 status` phân biệt được: nó in dòng `MeshCentral (cổng 4430)`
 và cảnh báo riêng nếu thấy 4431.
