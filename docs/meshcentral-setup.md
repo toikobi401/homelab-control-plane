@@ -346,11 +346,32 @@ chỉ dùng nó cho `magenturl` (app di động), không cho lệnh cài.
 .\scripts\mesh-patch.ps1 apply     # Administrator
 ```
 
-Bản vá cho `serverinfo.name` ưu tiên `agentaliasdns` (`meshuser.js` dòng ~564):
+Bản vá sửa **hai** thứ trong `meshuser.js`, và chúng phải đi cùng nhau:
 
 ```javascript
+// Tên miền (dòng ~564)
 name: (typeof args.agentaliasdns == 'string') ? args.agentaliasdns
     : (domain.dns ? domain.dns : parent.certificates.CommonName),
+
+// Cổng (dòng ~558)
+if ((typeof args.agentaliasdns == 'string') && (args.agentaliasport != null)) {
+    httpport = args.agentaliasport;
+}
+```
+
+⚠️ **Sửa riêng tên miền là chưa đủ.** Lệnh khi đó thành
+`https://mesh.tenmien-cua-ban.com:4430/...` — địa chỉ lai: tên công khai nhưng
+cổng nội bộ. Cloudflare chỉ nhận 443, nên máy ngoài báo:
+
+```
+Connecting to mesh.tenmien-cua-ban.com|172.67.160.175|:4430... failed: Connection refused.
+```
+
+Kiểm chứng nhanh sự khác biệt:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" "https://mesh.tenmien-cua-ban.com/meshagents?script=1"       # 200
+curl -s -o /dev/null -w "%{http_code}" "https://mesh.tenmien-cua-ban.com:4430/meshagents?script=1"  # 000
 ```
 
 **Vì sao không đặt `domain.dns`:** khoá đó ảnh hưởng **28 chỗ** trong
@@ -373,8 +394,11 @@ wget "https://mesh.tenmien-cua-ban.com/meshagents?script=1" --no-check-certifica
   sudo -E ./meshinstall.sh https://mesh.tenmien-cua-ban.com '<ma-nhom>'
 ```
 
-Dấu nháy đơn quanh mã nhóm là **bắt buộc** — mã chứa `$` mà bash sẽ diễn giải
-nếu thiếu.
+Hai điều dễ sai:
+
+- **Không có `:4430`** — qua Cloudflare chỉ dùng cổng 443 (mặc định của https)
+- **Dấu nháy đơn quanh mã nhóm là bắt buộc** — mã chứa `$` mà bash sẽ diễn giải
+  nếu thiếu
 
 ## Hai đường kết nối: tailnet và Cloudflare
 
