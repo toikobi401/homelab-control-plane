@@ -318,6 +318,64 @@ Máy **trong** tailnet vẫn dùng được bình thường — tunnel trỏ v�
 ⚠️ **Phải tải lại agent sau khi đổi.** File cài đặt nhúng địa chỉ server vào bên trong, nên bản đã
 tải trước đó vẫn mang tên cũ. MeshCentral ký lại các file agent lúc khởi động (mất ~30 giây).
 
+## Lệnh cài agent trỏ sai địa chỉ — "Name or service not known"
+
+**Triệu chứng** trên máy ngoài tailnet (ví dụ máy ảo Ubuntu), khi chạy lệnh cài
+agent copy từ giao diện MeshCentral:
+
+```
+Resolving war-machine-2.taildbb73b.ts.net... failed: Name or service not known
+wget: unable to resolve host address
+bash: ./meshinstall.sh: Permission denied
+```
+
+⚠️ Dòng **"Permission denied" gây hiểu nhầm** — nó chỉ là hệ quả. `wget` hỏng
+nên `meshinstall.sh` chưa bao giờ được tải về; `chmod` chạy trên file rỗng, rồi
+`bash` từ chối chạy. Lỗi thật nằm ở hai dòng phía trên.
+
+**Nguyên nhân:** giao diện sinh lệnh cài từ `serverinfo.name`, mà giá trị đó lấy
+từ `CommonName` của chứng chỉ — tức tên tailnet, chỉ phân giải được từ máy đã
+cài Tailscale.
+
+`agentaliasdns` trong config.json **đã khai** tên công khai, nhưng MeshCentral
+chỉ dùng nó cho `magenturl` (app di động), không cho lệnh cài.
+
+### Cách sửa
+
+```powershell
+.\scripts\mesh-patch.ps1 apply     # Administrator
+```
+
+Bản vá cho `serverinfo.name` ưu tiên `agentaliasdns` (`meshuser.js` dòng ~564):
+
+```javascript
+name: (typeof args.agentaliasdns == 'string') ? args.agentaliasdns
+    : (domain.dns ? domain.dns : parent.certificates.CommonName),
+```
+
+**Vì sao không đặt `domain.dns`:** khoá đó ảnh hưởng **28 chỗ** trong
+`webserver.js`/`meshuser.js`/`meshcentral.js` và có nguy cơ làm hỏng đường tailnet
+đang chạy tốt (đã gặp khi thử `certurl`). `serverinfo.name` chỉ dùng ở **8 chỗ**
+trong `default.handlebars`, tất cả đều là lệnh cài agent hoặc URL để agent kết
+nối vào — đúng thứ cần địa chỉ công khai.
+
+⚠️ **Bản vá nằm trong `node_modules`** nên `npm update` sẽ ghi đè. Chạy lại
+`mesh-patch.ps1 apply` sau mỗi lần cập nhật MeshCentral. Bản gốc giữ ở
+`meshuser.js.orig`; `mesh-patch.ps1 revert` trả lại.
+
+### Chữa thủ công khi chưa vá
+
+Đổi host trong lệnh, giữ nguyên phần còn lại:
+
+```bash
+wget "https://mesh.tenmien-cua-ban.com/meshagents?script=1" --no-check-certificate -O ./meshinstall.sh && \
+  chmod 755 ./meshinstall.sh && \
+  sudo -E ./meshinstall.sh https://mesh.tenmien-cua-ban.com '<ma-nhom>'
+```
+
+Dấu nháy đơn quanh mã nhóm là **bắt buộc** — mã chứa `$` mà bash sẽ diễn giải
+nếu thiếu.
+
 ## Hai đường kết nối: tailnet và Cloudflare
 
 Hub có hai lối vào MeshCentral, và agent nên đi lối gần nhất:
