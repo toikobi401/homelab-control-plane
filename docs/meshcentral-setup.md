@@ -400,6 +400,67 @@ Hai điều dễ sai:
 - **Dấu nháy đơn quanh mã nhóm là bắt buộc** — mã chứa `$` mà bash sẽ diễn giải
   nếu thiếu
 
+## Remote desktop máy Linux — phải dùng Xorg, không dùng Wayland
+
+Agent Linux chụp màn hình qua **X11**. Ubuntu từ 21.04 mặc định dùng **Wayland**,
+và MeshCentral 1.2.5 không hỗ trợ.
+
+Chính agent nói ra điều đó — chuỗi nằm trong binary `meshagent_x86-64`:
+
+```
+This platform is configured to use Xwayland
+please modify config to use Xorg
+```
+
+Xwayland (lớp tương thích X11 bên trong Wayland) **cũng không đủ** — agent nhận
+ra và từ chối.
+
+### Kiểm tra máy đích đang dùng gì
+
+```bash
+echo $XDG_SESSION_TYPE     # wayland  hoặc  x11
+```
+
+Hoặc từ MeshCentral: mở tab **Console** của máy đó, gõ `info` — nó in
+`X11 support: true/false`.
+
+### Chuyển sang Xorg
+
+Cách nhanh, không cần sửa file: ở màn hình đăng nhập, bấm **bánh răng** góc dưới
+phải rồi chọn **"Ubuntu on Xorg"**. Đăng xuất/đăng nhập lại là xong, nhưng phải
+chọn lại mỗi lần.
+
+Cách cố định — sửa `/etc/gdm3/custom.conf`, bỏ dấu `#`:
+
+```
+WaylandEnable=false
+```
+
+Rồi `sudo systemctl restart gdm3` (sẽ đăng xuất phiên hiện tại).
+
+Kiểm chứng sau khi đổi:
+
+```bash
+echo $XDG_SESSION_TYPE     # phải ra: x11
+sudo systemctl restart meshagent
+```
+
+### Điều kiện còn lại
+
+- **Phải có người đăng nhập.** Agent chụp phiên X đang chạy; máy ở màn hình đăng
+  nhập thì không có gì để hiện. Thông báo tương ứng trong agent: *"This system
+  does not appear to have an XServer instance running when no users are logged in"*.
+- **Thiếu thư viện X11** thì cài: `sudo apt install libx11-6 libxext6 libxtst6
+  libxdamage1 libxfixes3`
+
+### Terminal không cần X11
+
+`caps & 2` (terminal) và `caps & 4` (file) hoạt động độc lập với màn hình. Máy
+Wayland vẫn dùng được tab **Terminal** và **Files** bình thường — chỉ tab
+**Desktop** là không.
+
+Dùng Terminal để xác nhận agent khoẻ trước khi đi sâu vào chuyện X11.
+
 ## Hai đường kết nối: tailnet và Cloudflare
 
 Hub có hai lối vào MeshCentral, và agent nên đi lối gần nhất:
