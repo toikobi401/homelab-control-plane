@@ -18,7 +18,13 @@
 
     Khoá `agentaliasdns` trong config.json ĐÃ khai tên công khai, nhưng
     MeshCentral chỉ dùng nó cho `magenturl` (app di động), không cho lệnh cài.
-    Bản vá này cho `serverinfo.name` ưu tiên `agentaliasdns`.
+
+    Bản vá sửa HAI thứ, và chúng phải đi cùng nhau:
+      - `serverinfo.name`  -> agentaliasdns  (tên miền công khai)
+      - `httpport`         -> agentaliasport (443)
+
+    Sửa riêng tên miền sẽ ra địa chỉ lai "mesh.ten-mien.com:4430" — Cloudflare
+    chỉ nhận 443 nên máy ngoài báo "Connection refused".
 
     Vì sao sửa serverinfo.name mà không đặt domain.dns:
     `domain.dns` ảnh hưởng 28 chỗ trong webserver.js/meshuser.js/meshcentral.js
@@ -55,7 +61,33 @@ $ServiceName = 'meshcentral.exe'
 
 $Marker = 'SUA CUC BO: uu tien agentaliasdns'
 
-$OriginalLine = '                name: domain.dns ? domain.dns : parent.certificates.CommonName,'
+$OriginalName = '                name: domain.dns ? domain.dns : parent.certificates.CommonName,'
+
+# Cổng phải đổi cùng tên miền: đổi riêng tên sẽ ra địa chỉ lai
+# "mesh.ten-mien.com:4430" mà Cloudflare không nhận.
+$OriginalPort = @'
+            var httpport = ((args.aliasport != null) ? args.aliasport : args.port);
+
+            // Build server information object
+'@
+
+$PatchedPort = @'
+            var httpport = ((args.aliasport != null) ? args.aliasport : args.port);
+
+            // SUA CUC BO: cong phai di CUNG ten mien cong khai.
+            //
+            // serverinfo.name duoi day uu tien agentaliasdns, nhung mac dinh
+            // httpport van la cong noi bo (4430). Ket qua la dia chi lai
+            // "mesh.ten-mien.com:4430" — Cloudflare chi nhan 443 nen may ngoai
+            // bao "Connection refused".
+            //
+            // Doi ca hai cung luc, khong bao gio doi rieng mot cai.
+            if ((typeof args.agentaliasdns == 'string') && (args.agentaliasport != null)) {
+                httpport = args.agentaliasport;
+            }
+
+            // Build server information object
+'@
 
 $PatchedBlock = @'
                 // SUA CUC BO: uu tien agentaliasdns cho ten server.
@@ -155,7 +187,7 @@ if ($Action -eq 'apply') {
     }
 
     $content = Get-Content $TargetFile -Raw
-    if ($content -notmatch [regex]::Escape($OriginalLine)) {
+    if ($content -notmatch [regex]::Escape($OriginalName)) {
         Write-Bad 'Không tìm thấy dòng cần sửa.'
         Write-Host '  Có thể MeshCentral đã đổi phiên bản — kiểm tra lại thủ công:'
         Write-Host '    meshuser.js, tìm "name: domain.dns ? domain.dns :"'
@@ -169,7 +201,18 @@ if ($Action -eq 'apply') {
         Write-Step "Đã lưu bản gốc: $BackupFile"
     }
 
-    $content = $content.Replace($OriginalLine, $PatchedBlock.TrimEnd())
+    $content = $content.Replace($OriginalName, $PatchedBlock.TrimEnd())
+
+    # Cổng: đổi cùng lúc với tên miền.
+    $normalizedPort = $OriginalPort -replace "`r`n", "`n"
+    $normalizedContent = $content -replace "`r`n", "`n"
+    if ($normalizedContent.Contains($normalizedPort)) {
+        $content = $normalizedContent.Replace($normalizedPort, ($PatchedPort -replace "`r`n", "`n"))
+        Write-Step 'Đã vá cổng (agentaliasport)'
+    } else {
+        Write-Warn 'Không tìm thấy đoạn httpport — lệnh cài có thể vẫn mang cổng nội bộ.'
+    }
+
     Set-Content -Path $TargetFile -Value $content -NoNewline -Encoding UTF8
 
     # Cú pháp hỏng thì MeshCentral không khởi động nổi — kiểm tra trước khi restart.
