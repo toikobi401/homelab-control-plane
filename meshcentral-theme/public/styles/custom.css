@@ -650,6 +650,57 @@ body.login .title2 {
   }
 }
 
+/* ── Tab thiết bị: cho cuộn ngang thay vì cắt mất ─────────────────────────── */
+
+/*
+ * ĐÂY LÀ LỖI MẤT CHỨC NĂNG, không phải thẩm mỹ.
+ *
+ * Trang chi tiết thiết bị có 9 tab: General, Desktop, Terminal, Files, Registry,
+ * Software, Events, Details, Console. Đo trên 390×844:
+ *
+ *   #topbar   scrollWidth 535px  ·  clientWidth 320px  ·  overflow-x: visible
+ *   #container (cha)             ·  overflow-x: hidden
+ *
+ * Cha cắt phần tràn, con không tự cuộn được → **4 tab cuối (Software, Events,
+ * Details, Console) không có cách nào mở** từ điện thoại.
+ *
+ * Cho `#topbar` tự cuộn là trả lại đường vào. Đã kiểm chứng: sau khi áp,
+ * `scrollLeft` đạt 225px = đúng phần bị khuất (535 − 310), cả 9 tab đều tới được.
+ *
+ * Mốc 900px chứ không phải 480px: tab bar bắt đầu tràn từ khoảng đó, và máy
+ * tính bảng dựng đứng cũng dính.
+ */
+@media (max-width: 900px) {
+  #topbar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--hub-muted-fg) transparent;
+  }
+
+  /* Không cho tab xuống dòng — chúng phải nằm một hàng để cuộn có nghĩa. */
+  #topbar > * {
+    white-space: nowrap;
+  }
+
+  /*
+   * Thanh cuộn phải nhìn thấy được. Trên iOS/Android nó ẩn hoàn toàn cho tới
+   * khi chạm, nên không có dấu hiệu nào cho biết còn tab bên phải — người dùng
+   * chỉ thấy chữ bị cắt và tưởng đó là tất cả.
+   *
+   * 4px: đủ nhận ra, không ăn chỗ của tab.
+   */
+  #topbar::-webkit-scrollbar {
+    -webkit-appearance: none;
+    height: 4px;
+  }
+
+  #topbar::-webkit-scrollbar-thumb {
+    background-color: var(--hub-muted-fg);
+    border-radius: 2px;
+  }
+}
+
 /* ── Giảm chuyển động ─────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
