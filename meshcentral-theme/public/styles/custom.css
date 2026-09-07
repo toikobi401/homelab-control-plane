@@ -701,6 +701,55 @@ body.login .title2 {
   }
 }
 
+/* ── Thanh công cụ remote desktop: không cắt nút ──────────────────────────── */
+
+/*
+ * Trang Desktop có hai hàng công cụ, cả hai đều tràn trên điện thoại. Đo ở 390px:
+ *
+ *   #deskarea1 (.areaHead)  Connect · RDP Connect · trạng thái
+ *                           scrollWidth 307 > clientWidth 290
+ *   #deskarea4 (.areaFoot)  Alt+Ctrl+Del · Send · Clipboard · Type
+ *                           scrollWidth 402 > clientWidth 290
+ *
+ * Hậu quả cụ thể: chữ "Disconnected" bị cắt ở mép phải, và nút **Type** nằm
+ * hoàn toàn ngoài màn hình (right 417 > 390).
+ *
+ * VÌ SAO `flex-wrap: wrap` SẴN CÓ KHÔNG CỨU ĐƯỢC: hai `#deskarea*` đã có class
+ * `d-flex flex-wrap`, nhưng con trực tiếp bên trong lại là `.d-flex` với
+ * `flex-wrap: nowrap` rộng 402px — một khối cứng, không có chỗ nào để ngắt.
+ * Phải cho chính con đó wrap.
+ *
+ * Thêm `overflow-x: auto` làm lưới an toàn: nếu một bản MeshCentral sau này
+ * thêm nút mới mà wrap vẫn không đủ, người dùng còn cuộn được thay vì mất nút.
+ */
+@media (max-width: 900px) {
+  #deskarea1,
+  #deskarea4 {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--hub-muted-fg) transparent;
+  }
+
+  /* Đây mới là chỗ khoá bề rộng — không phải `#deskarea*` bên ngoài. */
+  #deskarea1 > .d-flex,
+  #deskarea4 > .d-flex {
+    flex-wrap: wrap !important;
+  }
+
+  #deskarea1::-webkit-scrollbar,
+  #deskarea4::-webkit-scrollbar {
+    -webkit-appearance: none;
+    height: 4px;
+  }
+
+  #deskarea1::-webkit-scrollbar-thumb,
+  #deskarea4::-webkit-scrollbar-thumb {
+    background-color: var(--hub-muted-fg);
+    border-radius: 2px;
+  }
+}
+
 /* ── Giảm chuyển động ─────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
