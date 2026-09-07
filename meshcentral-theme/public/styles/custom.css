@@ -750,6 +750,71 @@ body.login .title2 {
   }
 }
 
+/* ── Nút đổi chế độ hiển thị màn hình: đưa vào tầm với ────────────────────── */
+/*
+ * VÌ SAO CANVAS BÉ TÍ — không phải lỗi bố cục, mà là toán học của tỉ lệ.
+ *
+ * `deskAdjust()` (default3.handlebars) có ba chế độ theo biến `deskAspectRatio`:
+ *     0 Fixed  — giữ tỉ lệ:  height = deskH × parentW / deskW
+ *     1 Zoomed — 1:1, DeskParent cho cuộn hai chiều
+ *     2 Scale  — width/height 100%, kéo giãn méo hình
+ *
+ * Máy hai màn hình ghép ngang chạy 3840×1080 (tỉ lệ 3.56:1). Ở chế độ 0 trên
+ * khung rộng 290px: 1080 × 290 / 3840 = 81.5px. Đo được đúng 82px. MeshCentral
+ * tính KHÔNG SAI — 82px là câu trả lời đúng cho một câu hỏi sai.
+ *
+ * Chế độ 1 mới là thứ dùng được trên điện thoại: chữ ở kích thước thật, lướt
+ * để đi quanh màn hình. Nút bật nó ĐÃ CÓ SẴN (title "Toggle View Mode", ⇲) và
+ * `putstore` nhớ lựa chọn giữa các phiên. Vấn đề thuần tuý là không ai thấy nó:
+ *
+ *     rect x:355 w:16  ·  khung iframe rộng 290  →  ngoài màn hình 65px
+ *
+ * Thủ phạm là `.ms-auto` (Bootstrap `margin-left:auto`) đẩy cả nhóm nút sang
+ * mép phải — trên desktop thì đẹp, trên 290px thì đẩy hẳn ra ngoài. Bỏ ms-auto
+ * cho nhóm trôi về trái, và nới vùng chạm 16px lên 44px cho vừa đầu ngón tay.
+ *
+ * KHÔNG ghi đè chiều cao canvas bằng CSS: đó là inline style do JS đặt, và ép
+ * nó sẽ phá tỉ lệ hình ảnh mà `deskAdjust()` đang giữ đúng.
+ */
+
+@media (max-width: 900px) {
+  #deskarea1 .ms-auto {
+    margin-left: 0 !important;
+  }
+
+  /* 16px là bia quá nhỏ cho ngón tay; 44px là ngưỡng tối thiểu quen dùng. */
+  #deskarea1 .deskareaicon,
+  #deskarea4 .deskareaicon {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Tiêu đề "Desktop - <máy> - <nhóm>" xuống dòng thành 3 hàng, ăn 97px chiều
+   * cao trên màn hình vốn đã chật. Một hàng cắt bớt là đủ nhận ra máy nào. */
+  #p11title {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 4px;
+  }
+
+  #p11title .fs-4 {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 0.95rem !important;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Tên nhóm suy ra được từ ngữ cảnh — bỏ để giữ tên máy khỏi bị cắt. */
+  #p11title .deviceGroupName {
+    display: none;
+  }
+}
+
 /* ── Giảm chuyển động ─────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
