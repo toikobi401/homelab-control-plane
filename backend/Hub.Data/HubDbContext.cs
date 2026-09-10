@@ -1,4 +1,5 @@
 using Hub.Core.Authentication;
+using Hub.Core.Backup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
@@ -33,6 +34,8 @@ public sealed class HubDbContext(DbContextOptions<HubDbContext> options) : DbCon
 
     public DbSet<FailedLoginAttempt> FailedLoginAttempts => Set<FailedLoginAttempt>();
 
+    public DbSet<BackupRun> BackupRuns => Set<BackupRun>();
+
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -66,6 +69,25 @@ public sealed class HubDbContext(DbContextOptions<HubDbContext> options) : DbCon
             entity.HasIndex(attempt => attempt.AttemptedAt);
         });
 
+
+        modelBuilder.Entity<BackupRun>(entity =>
+        {
+            entity.HasKey(run => run.Id);
+            entity.Property(run => run.JobName).IsRequired().HasMaxLength(100);
+
+            // §6.5 mục 4 cấm log thứ nhạy cảm. Thông báo lỗi ở đây là câu chung
+            // cho người dùng, không phải stack trace — giới hạn độ dài để không
+            // ai vô tình nhét cả output của rclone (có đường dẫn file) vào đây.
+            entity.Property(run => run.ErrorMessage).HasMaxLength(500);
+
+            // Màn hình lịch sử luôn sắp theo thời gian giảm dần, và trạng thái
+            // từng job tra theo tên.
+            entity.HasIndex(run => run.StartedAt);
+            entity.HasIndex(run => new { run.JobName, run.StartedAt });
+
+            // Duration là thuộc tính tính toán, không lưu.
+            entity.Ignore(run => run.Duration);
+        });
 
         ApplyDateTimeOffsetConversions(modelBuilder);
     }

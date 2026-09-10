@@ -18,17 +18,19 @@ là một NAS cá nhân.
 Mọi thiết bị — iPhone, Android, desktop — đều truy cập bằng trình duyệt qua một miền nội bộ. Không
 có ứng dụng native nào cả.
 
-Năm năng lực, theo thứ tự xây dựng:
+Chín năng lực, theo thứ tự xây dựng:
 
 | # | Năng lực | Trạng thái |
 |---|---|---|
 | 1 | Sổ đăng ký thiết bị + hiện diện (online/offline, lần cuối thấy) | ✅ Xong — đọc từ Tailscale |
 | 2 | Duyệt và truyền file giữa các thiết bị | **Giao cho MeshCentral** — không tự xây (§2.3) |
-| 3 | Sao lưu lên cloud storage, sau đó lên NAS cá nhân | Chưa bắt đầu |
+| 3 | Sao lưu lên cloud storage, sau đó lên NAS cá nhân | **Backend xong** (rclone sync) — chưa có giao diện, chưa có lịch tự động |
 | 4 | Điều khiển màn hình từ xa vào PC/laptop Windows | **Giao cho MeshCentral** |
 | 5 | Đọc truyện tranh qua API công khai (MangaDex, …) | Chưa bắt đầu |
 | 6 | Tắt, mở, khởi động lại máy từ xa (đánh thức qua waker — §5a.1) | **Giao cho MeshCentral** |
 | 7 | Xem phim từ kho công cộng (Internet Archive) | Chưa bắt đầu |
+| 8 | Nghe nhạc cá nhân (NAS/PC nhà, cloud, SoundCloud) — §5c | Chưa bắt đầu |
+| 9 | Xem phim cá nhân (NAS/PC nhà, rồi cloud) — §5c | Chưa bắt đầu |
 
 Các năng lực 2, 3, 4, 6 phụ thuộc vào lớp transport và xác thực của năng lực 1. Không làm sai thứ tự.
 
@@ -95,7 +97,7 @@ công khai.
 |---|---|---|
 | Duyệt và truyền file giữa desktop | **MeshCentral** (đã có sẵn trong agent) | Viết giao thức truyền file riêng, hay dựng trang duyệt file của ta |
 | Đồng bộ file (về sau) | Syncthing, điều khiển bởi UI của ta | Tự viết lại đồng bộ mức block |
-| Sao lưu cloud/NAS | Gọi binary `rclone` từ backend | Tự tay viết client S3/Drive/WebDAV |
+| Sao lưu cloud/NAS | Gọi binary `rclone` từ backend — `sync` để sao lưu, `mount` để đọc (§5c) | Tự tay viết client S3/Drive/WebDAV; dùng `mount` để sao lưu |
 | Điều khiển màn hình | **MeshCentral** (thay cho noVNC ghi ban đầu) | Viết codec hay giao thức nhập liệu |
 | Điều khiển nguồn, Wake-on-LAN | **MeshCentral** | Tự viết agent nhận lệnh tắt/mở máy |
 
@@ -184,12 +186,16 @@ là thứ cho phép backend chuyển sang NAS mà không phải viết lại.
   /Hub.Data               EF Core, SQLite, migration
   /Hub.Manga              Client MangaDex — cô lập, xem §5
   /Hub.Video              Client Internet Archive — cô lập, xem §5b
+  /Hub.Music              Nhạc cá nhân, NAS/PC + cloud (rclone mount) — xem §5c
+  /Hub.Media              Phim cá nhân, NAS/PC + cloud (rclone mount) — xem §5c
 /frontend               Ứng dụng React + Vite
   /src/features/devices   Danh sách thiết bị, trạng thái hiện diện
   /src/features/backup    Job sao lưu và lịch sử
   /src/features/remote    MeshCentral nhúng — điều khiển máy, màn hình, file
   /src/features/manga     Đọc truyện (năng lực 5, cô lập)
-  /src/features/video     Xem phim (năng lực 7, cô lập)
+  /src/features/video     Xem phim công cộng (năng lực 7, cô lập)
+  /src/features/music     Nghe nhạc cá nhân (năng lực 8, cô lập)
+  /src/features/media     Xem phim cá nhân (năng lực 9, cô lập)
   /src/components/ui      shadcn/ui — mã chép vào repo, được phép sửa
   /src/shared             Component dùng chung, client API, kiểu dữ liệu
 /docs                   Tài liệu nghiên cứu (manga-api-research.md, …)
@@ -704,6 +710,152 @@ trước. Mẫu quá nhỏ để kết luận — nhưng phải đo trước khi
 
 ---
 
+## 5c. Năng lực 8 và 9 — Nhạc và phim cá nhân
+
+### Khác gì với năng lực 7 (§5b)
+
+Năng lực 7 phát nội dung **công cộng** (Internet Archive) — câu hỏi khó nhất ở đó là giấy phép.
+Năng lực này phát nội dung **của chính bạn** (NAS/PC nhà, và cloud storage đã sao lưu theo năng lực
+3) — không có câu hỏi giấy phép, nhưng có câu hỏi khác: file nằm ở đâu, và ai được xem.
+
+**Không mở rộng §5b để "tiện thể" phát nhạc/phim cá nhân qua đó.** Nguồn khác nhau (đĩa cứng của
+bạn, không phải Internet Archive), mô hình đe doạ khác nhau (dữ liệu riêng tư thật, không phải nội
+dung công khai). Gộp chung sẽ pha loãng cả hai bộ ràng buộc.
+
+### Hai module, không phải một
+
+```
+Hub.Music   — nhạc cá nhân
+Hub.Media   — phim/video cá nhân
+```
+
+Tên **cố tình khác** `Hub.Video` (đã là tên riêng của module Internet Archive ở §5b) để không gây
+nhầm lẫn khi đọc bố cục repo.
+
+Vì sao tách hai module thay vì gộp một `Hub.Streaming`: nhạc và phim có UI khác hẳn (playlist tuần
+tự so với xem một lần) và metadata khác hẳn (thẻ ID3 so với tên file/thumbnail). Gộp chung đẻ ra một
+model dữ liệu "vừa đủ cho cả hai" mà không hợp cái nào. Cả hai đều **không phụ thuộc lẫn nhau**, chỉ
+phụ thuộc `Hub.Core` — đúng luật phụ thuộc ở §3.
+
+Xoá một trong hai module phải là xoá một project, một thư mục frontend, một mục navigation — đúng
+tinh thần đã áp dụng cho `Hub.Manga`/`Hub.Video`.
+
+### Ba nguồn nội dung — hai nguồn dùng chung cơ chế đọc file, nguồn thứ ba thì không
+
+**Nguồn A — NAS/PC nhà.** Đọc trực tiếp từ hệ thống file cục bộ. Không mạng ngoài, không bên thứ ba.
+Làm được ngay, không phụ thuộc năng lực nào khác ngoài Phase 0.
+
+**Nguồn B — Cloud storage.** Đây là chỗ có một ràng buộc đã chốt từ trước mà thiết kế này phải tôn
+trọng: §6.5 mục 3 nói đích backup lưu **blob đã mã hoá bằng `rclone crypt`**. File trên cloud
+**không phải** file gốc — nó là ciphertext. Không thể HTTP GET thẳng URL rồi phát; phải giải mã qua
+rclone trước.
+
+**Quyết định: dùng `rclone mount`, không dùng `rclone serve http`.** Mount biến remote cloud (đã
+giải mã) thành một ổ đĩa ảo trên máy chạy backend. Hệ quả quan trọng nhất: **Nguồn B trở thành một
+trường hợp đặc biệt của Nguồn A** — `Hub.Music`/`Hub.Media` chỉ cần biết "đọc file từ đường dẫn X",
+không cần biết X là ổ cứng thật hay mount ảo. Một cơ chế đọc file, hai nguồn.
+
+Lý do không chọn `rclone serve http`: nó thêm một tiến trình proxy con phải tự quản lý vòng đời —
+đúng loại việc dự án vừa chủ động **bỏ** khi xoá agent tự viết (§3, mục "Agent trên máy desktop — đã
+bỏ"). `rclone mount` trên Windows cần WinFsp cài sẵn; ghi vào tài liệu vận hành khi tới lúc dựng.
+
+Đường dẫn cấu hình qua `appsettings.json`. Ví dụ minh hoạ — **không phải giá trị thật**; repo này là
+public, mọi đường dẫn/IP/hostname cụ thể trong code và tài liệu phải là giá trị ví dụ, giống cách
+`hub.tailnet-example.ts.net` đã dùng ở §4a:
+
+```json
+{
+  "Music": { "LibraryPath": "D:\\Media\\Music" },
+  "Media": { "LibraryPath": "D:\\Media\\Video" }
+}
+```
+
+Khi Nguồn B sẵn sàng, `LibraryPath` trỏ vào điểm mount của rclone — không đổi code, chỉ đổi cấu hình.
+Đây là hệ quả trực tiếp của quyết định "một cơ chế đọc file" ở trên.
+
+**Nguồn C — SoundCloud (chỉ năng lực 8, không áp dụng cho năng lực 9).** Đã điều tra điều khoản API
+chính thức trước khi ghi mục này — không đoán. Ba ràng buộc sau **phá vỡ giả định "một cơ chế đọc
+file"** ở trên, nên SoundCloud **không** đi qua `LibraryPath`/`rclone mount`. Nó là một nguồn tách
+biệt hoàn toàn, gọi trực tiếp API mỗi lần phát.
+
+1. **SoundCloud cấm cache và lưu trữ bền vững.** Nguyên văn điều khoản: *"app must not include
+   file-save functionality, or otherwise designed to cache, download or persistently store any User
+   Content"*, và **cấm nghe offline tuyệt đối** dù người upload có cho phép tải hay không. `rclone
+   mount` biến nội dung thành file trên ổ đĩa ảo — đúng thứ điều khoản này cấm. Vì vậy nhạc
+   SoundCloud **không bao giờ** đi qua `Hub.Music/LibraryPath`. Chỉ được cache **trong phiên nghe
+   hiện tại**, và phải ngừng phát/truy cập được ngay khi phiên kết thúc.
+2. **Cần tài khoản SoundCloud Artist Pro trả phí** để đăng ký app và lấy `client_id`/`client_secret`
+   — khác với MangaDex (§5) và Internet Archive (§5b), cả hai đều miễn phí hoàn toàn. Đây là ngoại
+   lệ có điều kiện đối với non-goal ở §1 ("không backend cloud phải trả tiền"): chấp nhận, vì chi phí
+   là thuê bao Artist Pro của chính người dùng, không phải backend vận hành chung. Ghi rõ, không
+   giấu: **bật nguồn này tốn tiền thật hàng tháng**, khác các nguồn còn lại của cả dự án.
+3. **Bắt buộc ghi công và backlink ở mọi nơi hiển thị track** — danh sách tìm kiếm, hàng trong
+   playlist, và trình phát — không chỉ ở "đang phát". Mỗi track phải hiện: tên người upload, chữ
+   "SoundCloud" là nguồn, và một liên kết thấy rõ tới `soundcloud.com/...` của chính track đó. Đây
+   là điều kiện giữ quyền dùng API, không phải gợi ý UI.
+4. **Cấm dùng cho mục đích thương mại** — không quảng cáo/tài trợ quanh nội dung, không bán tính
+   năng đã có sẵn trên chính SoundCloud. Dự án này cá nhân, không quảng cáo, không bán — hợp điều
+   kiện, nhưng nếu sau này đổi hướng thương mại hoá bất kỳ phần nào của hub thì Nguồn C phải bị gỡ
+   trước tiên, giống quy tắc đã áp dụng cho năng lực 7 khi hệ thống rời khỏi phạm vi "chỉ mình tôi
+   dùng".
+
+**Giới hạn tốc độ đã đo được từ tài liệu chính thức:** endpoint phát nhạc (`/tracks/:id/stream`)
+giới hạn **15.000 request/24 giờ**; lấy token kiểu client-credentials giới hạn **50 lần/12 giờ mỗi
+app, 30 lần/giờ mỗi IP** — vì vậy access token phải được **tái sử dụng và refresh**, không xin token
+mới cho mỗi request. Vượt giới hạn trả **429** kèm JSON nêu rõ nhóm giới hạn, số còn lại, và thời
+điểm reset — không có header `Retry-After` chuẩn, phải tự đọc trường reset trong JSON.
+
+**Kiến trúc gọi API — giữ nguyên nguyên tắc proxy đã có ở §5/§5b:** frontend không bao giờ gọi thẳng
+`api.soundcloud.com`. Backend giữ `client_id`/`client_secret` (qua .NET user-secrets, đúng §6.5 mục
+1), gọi `/resolve` và lấy transcoding từ `/tracks/:id/stream`, rồi chuyển tiếp byte về frontend qua
+cùng `RangeFileResult` ở `Hub.Core` — khác biệt duy nhất là nguồn phía sau là HTTP tới SoundCloud,
+không phải `FileStream` cục bộ.
+
+### Range-proxy dùng chung với năng lực 7
+
+Đặt helper trong `Hub.Core` (không đặt trong `Hub.Video`, vì cả `Hub.Music`, `Hub.Media`, và `Hub.
+Video` đều cần):
+
+```
+Hub.Core/Streaming/RangeFileResult.cs
+```
+
+Nhận `Stream` + header `Range` → trả `206 Partial Content` + `Content-Range`, đọc theo khối, không
+đệm cả file vào RAM. Đây chính là bài học đã ghi ở §5b: *"Proxy phải chuyển tiếp nguyên vẹn header
+Range... đây là lỗi dễ mắc nhất khi viết proxy video."* Viết một lần, dùng cho cả Internet Archive
+lẫn nhạc/phim cá nhân — không viết lại logic Range ba lần cho ba module.
+
+Helper nhận **`Stream`**, không nhận riêng `FileStream` — cố ý, để cùng một hàm phục vụ được cả
+Nguồn A/B (đọc từ đĩa) lẫn Nguồn C (đọc từ `HttpResponseMessage.Content.ReadAsStream()` của
+SoundCloud). Một cơ chế Range, bất kể byte đến từ đâu.
+
+### Bảo mật — không có ngoại lệ mới
+
+Hệ thống **đã mở ra Internet** (§4a). Thư viện nhạc/phim cá nhân là dữ liệu riêng tư thật, không
+phải nội dung công khai như năng lực 5/7 — mức độ nghiêm trọng nếu lộ cao hơn hẳn.
+
+- Mọi endpoint `Hub.Music`/`Hub.Media` **yêu cầu session đăng nhập**. Không có đường xem công khai.
+- **Chống path traversal bắt buộc** (Nguồn A/B). Mọi đường dẫn file phải chuẩn hoá
+  (`Path.GetFullPath`) và kiểm tra nằm trong `LibraryPath` đã cấu hình trước khi mở file. Đây là lỗi
+  kinh điển của mọi "file server tự viết" — chuỗi `../../../Windows/System32` không được phép đi xa
+  hơn bước kiểm tra này.
+- **Không log đường dẫn file hay tên bài hát/phim** vào log thường — áp dụng đúng quy tắc "không
+  log thứ nhạy cảm" ở §6.5 mục 4.
+- `client_secret` của SoundCloud (Nguồn C) đi đúng đường của §6.5 mục 1: .NET user-secrets khi phát
+  triển, biến môi trường khi chạy thật — **không bao giờ** trong `appsettings.json` được commit.
+
+### Thứ tự làm
+
+Nguồn A **trước** — không phụ thuộc gì ngoài Phase 0 đã xong (§10). Nguồn B **chờ năng lực 3 xong**,
+vì cấu hình rclone remote + crypt là sản phẩm của năng lực 3; module streaming chỉ đọc lại nó, không
+tự cấu hình riêng. Nguồn C (SoundCloud) **không phụ thuộc năng lực 3** — không rclone, không file
+cục bộ — nên làm được ngay sau Nguồn A nếu muốn, miễn là đã có tài khoản Artist Pro và
+`client_id`/`client_secret`.
+
+Trong hàng đợi năng lực, đặt sau năng lực 3 và 7 — không mở đồng thời nhiều năng lực (§9).
+
+---
+
 ## 6. Xác thực nội bộ và bảo mật — không thương lượng
 
 Hệ thống này gom nội dung file, quyền truy cập từ xa vào PC, và quyền tắt-mở máy. Một phiên đăng
@@ -811,8 +963,21 @@ hai lớp**. Vì vậy vẫn cần mật khẩu, vẫn cần đăng xuất từ 
    nhập cloud trong repo. Dùng **.NET User Secrets** khi phát triển, biến môi trường khi chạy thật.
 2. **Thông tin xác thực của rclone và các dịch vụ khác** lưu mã hoá trong SQLite, khoá nằm ngoài DB.
    Không plaintext.
-3. **Đích sao lưu lưu blob đã mã hoá phía client.** Dùng remote `crypt` của rclone. Nhà cung cấp
-   cloud không bao giờ được thấy plaintext.
+3. **Đích sao lưu lưu blob đã mã hoá phía client** — *đã sửa 2026-09-10, xem bên dưới*. Dùng remote
+   `crypt` của rclone. Nhà cung cấp cloud không bao giờ được thấy plaintext.
+
+   **Sửa đổi (2026-09-10): mã hoá theo từng công việc, không phải toàn bộ.** Người dùng chọn lưu
+   nguyên bản cho dữ liệu thường, để xem và tải trực tiếp từ web Drive mà không cần rclone. Quy tắc
+   mới:
+
+   - **Bắt buộc mã hoá:** thư mục dữ liệu của hub. `hub.db` chứa hash mật khẩu và phiên đăng nhập —
+     hash PBKDF2 không phải plaintext, nhưng nó là thứ để tấn công offline, và Drive là tài khoản
+     Google chứ không phải máy này.
+   - **Được phép nguyên bản:** tài liệu, ảnh, và dữ liệu người dùng khác.
+
+   Hub kiểm tra lúc khởi động và **ghi log lỗi** nếu có công việc sao lưu thư mục dữ liệu lên đích
+   không mã hoá — quy tắc này dễ bị quên khi thêm công việc mới về sau. Xem
+   `docs/backup-setup.md`.
 4. **Không log thứ nhạy cảm.** Không mật khẩu, không token, không cookie, không đường dẫn file —
    kể cả ở môi trường phát triển. Ngoại lệ duy nhất: nhật ký kiểm toán của §5a.
 5. **Chống CSRF.** `SameSite=Strict` chặn phần lớn, nhưng các endpoint thay đổi trạng thái vẫn phải
@@ -934,6 +1099,8 @@ lý do.
 |---|---|---|
 | 2026-08-18 | Tailscale làm lớp transport | Loại NAT traversal, định danh, và mã hoá ra khỏi phạm vi |
 | 2026-08-18 | Giao cho rclone / Syncthing / VNC thay vì tự viết lại | Kiểm soát phạm vi; đây là các bài toán đã được giải |
+| 2026-09-10 | Năng lực 3 dùng `rclone sync`, không dùng `rclone mount` | `mount` là công cụ để ĐỌC (§5c). Sao lưu qua mount mất kiểm tra hash, mất retry, và mount chết giữa chừng thì bản sao lưu hỏng **im lặng** |
+| 2026-09-10 | Mã hoá theo từng công việc thay vì toàn bộ (sửa §6.5 mục 3) | Xem/tải trực tiếp từ web Drive tiện hơn hẳn; riêng `hub.db` vẫn bắt buộc mã hoá vì chứa hash mật khẩu |
 | 2026-08-29 | Thêm năng lực 5: đọc truyện qua API công khai | Người dùng muốn có; cô lập triệt để để có thể gỡ bỏ dễ dàng |
 | 2026-08-29 | Xác minh API MangaDex bằng thực nghiệm, ghi vào `docs/manga-api-research.md` | Kết quả vẫn còn giá trị nguyên vẹn sau khi đổi stack |
 | 2026-08-29 | ISP chặn MangaDex ở tầng **TCP**; **HTTP/3 (QUIC) đi qua được** | Kiểm chứng bằng đo đạc thật, không VPN |
@@ -976,6 +1143,13 @@ lý do.
 | 2026-09-01 | Địa chỉ MeshCentral chọn theo **Host của request**, không phải một URL cứng | Tên MagicDNS chỉ phân giải được trong tailnet; trả nó cho người vào qua Internet thì trình duyệt báo không tìm thấy máy chủ. Dùng Host chứ không dùng IP client vì sau Cloudflare Tunnel mọi request đều đến từ loopback |
 | 2026-09-01 | **Năng lực 2 giao cho MeshCentral**, xoá trang `/files` | MeshCentral đã có duyệt và truyền file trong chính agent của nó. Dựng thêm trang duyệt file của ta là viết lại thứ đã có — đúng điều §2.3 cấm. `/files` chuyển hướng sang `/remote` cho ai đã lưu đường dẫn cũ |
 | 2026-09-01 | **Xoá hẳn agent tự viết**: Hub.Agent, Hub.Windows, 4 endpoint điều khiển nguồn, sổ đăng ký thiết bị, 2 bảng DB | MeshCentral đã làm đủ những việc đó. Giữ cả hai là bảo trì hai thứ cùng làm một việc (§2.3). Hệ quả tốt: `Hub.Core` không còn phụ thuộc Windows (hợp §3.3), và hub không còn endpoint nào đổi trạng thái vật lý của máy |
+| 2026-09-09 | Thêm năng lực 8 (nhạc cá nhân) và 9 (phim cá nhân): `Hub.Music`, `Hub.Media`, tách khỏi `Hub.Video` | Nội dung của chính người dùng (NAS/PC + cloud đã backup theo năng lực 3), khác hẳn nội dung công cộng của năng lực 7 — không câu hỏi giấy phép, nhưng dữ liệu riêng tư thật. Xem §5c |
+| 2026-09-09 | Nguồn cloud của năng lực 8/9 dùng **`rclone mount`**, không dùng `rclone serve http` | Biến cloud (đã giải mã) thành một trường hợp đặc biệt của NAS/PC nhà — một cơ chế đọc file, hai nguồn. `serve http` thêm một tiến trình proxy con phải tự quản lý vòng đời, đúng thứ dự án vừa chủ động bỏ khi xoá agent tự viết |
+| 2026-09-09 | Range-proxy dùng chung đặt trong `Hub.Core`, không lặp lại ở từng module nội dung | Năng lực 7 đã học bài học này (`Content-Range`, không đệm cả file vào RAM); viết một lần trong `Hub.Core/Streaming/RangeFileResult.cs` thay vì lặp lại ở `Hub.Music`/`Hub.Media`/`Hub.Video` |
+| 2026-09-10 | Thêm **Nguồn C — SoundCloud** cho năng lực 8, tách hẳn khỏi `LibraryPath`/`rclone mount` | Điều tra điều khoản API chính thức: SoundCloud cấm cache/lưu trữ bền vững ("must not... cache, download or persistently store"), đối lập trực tiếp với `rclone mount`. Gọi trực tiếp API mỗi lần phát, chỉ cache trong phiên nghe hiện tại |
+| 2026-09-10 | Chấp nhận yêu cầu tài khoản **SoundCloud Artist Pro trả phí** như ngoại lệ có điều kiện của §1 | Khác MangaDex/Internet Archive (miễn phí hoàn toàn) — đây là chi phí thuê bao thật của người dùng, không phải backend chung phải trả. Ghi rõ, không giấu |
+| 2026-09-10 | Bắt buộc ghi công + backlink SoundCloud ở **mọi nơi hiển thị track**, không chỉ lúc phát | Đúng nguyên văn điều khoản API — điều kiện giữ quyền dùng, không phải gợi ý thiết kế. Áp dụng cho danh sách tìm kiếm, hàng playlist, và trình phát |
+| 2026-09-10 | Range-proxy dùng chung nhận `Stream` thay vì `FileStream` | Để cùng một hàm phục vụ được cả đọc từ đĩa (Nguồn A/B) lẫn đọc từ `HttpResponseMessage` của SoundCloud (Nguồn C) — một cơ chế Range, bất kể byte đến từ đâu |
 
 ---
 
@@ -1021,6 +1195,21 @@ Các câu đã chốt (thư viện UI, chạy lệnh shell) đã chuyển vào �
 13. Có dùng TMDB để bù metadata (poster, mô tả) cho năng lực 7 không? Trả lời được sau khi đo lại
     khả năng truy cập (§11 nhật ký 2026-08-31). Là thứ **làm đẹp** — năng lực 7 phải chạy đủ khi
     không có nó.
+14. **Định dạng file trong thư viện nhạc/phim cá nhân là gì?** — *chặn đường của năng lực 8/9, kiểm
+    tra trước khi viết code.* Trình duyệt phát thẳng được MP3/AAC/FLAC (nhạc) và MP4/h.264+AAC
+    (phim) qua thẻ `<audio>`/`<video>`. Định dạng khác (FLAC container lạ, MKV, AVI, WMA) cần chuyển
+    mã — mà §2.3 cấm tự viết codec. Nếu thư viện hiện có nhiều định dạng không phát thẳng được, cần
+    quyết: chuyển mã bằng công cụ có sẵn (ffmpeg, gọi binary giống cách dùng rclone) hay chỉ hỗ trợ
+    tập định dạng phát thẳng được và báo rõ file nào không xem/nghe được.
+15. Có cần playlist / lịch sử nghe-xem cho năng lực 8/9 không, hay chỉ duyệt thư mục và phát? Ảnh
+    hưởng tới việc có cần bảng DB mới hay không. Bắt đầu từ duyệt-và-phát đơn giản, thêm sau nếu
+    thấy thiếu.
+16. **Access token client-credentials của SoundCloud lưu ở đâu?** — *cần chốt trước khi viết
+    `Hub.Music` Nguồn C.* Token hết hạn ~1 giờ, giới hạn lấy mới chỉ 50 lần/12 giờ mỗi app — phải
+    tái sử dụng, không xin mới mỗi request. Lưu trong bộ nhớ tiến trình (đơn giản, nhưng mất khi
+    backend restart, phải xin lại) hay lưu trong SQLite cùng bảng với thông tin xác thực rclone
+    (bền hơn, nhưng thêm một bảng DB cho một giá trị sống ngắn hạn)? Nghiêng về bộ nhớ tiến trình vì
+    token sống ngắn và việc xin lại lúc khởi động không tốn kém — nhưng chưa chốt.
 
 
 

@@ -1,10 +1,12 @@
 using Hub.Api.Authentication;
+using Hub.Api.Backup;
 using Hub.Api.Contracts;
 using Hub.Api.Devices;
 using Hub.Api.Hosting;
 using Hub.Api.Security;
 using Hub.Core.Abstractions;
 using Hub.Core.Authentication;
+using Hub.Core.Backup;
 using Hub.Core.Configuration;
 using Hub.Core.Devices;
 using Hub.Data;
@@ -59,10 +61,22 @@ Directory.CreateDirectory(dataDirectory);
 // user-secrets như cũ.
 //
 // PHẢI đứng trước ResolveMode: chế độ Tailnet đọc HUB_TLS_CERT từ chính file này.
-builder.Configuration.AddJsonFile(
-    Path.Combine(dataDirectory, "appsettings.Production.json"),
-    optional: true,
-    reloadOnChange: false);
+//
+// Bọc try: `optional: true` chỉ bỏ qua khi THIẾU file, không cứu được file có
+// cú pháp JSON hỏng. Thiếu nó thì gõ nhầm một dấu phẩy là hub chết hẳn lúc khởi
+// động — và không vào được giao diện để sửa. Chạy tiếp với cấu hình cũ, kèm một
+// dòng log to, hữu ích hơn nhiều.
+var extraConfigPath = Path.Combine(dataDirectory, "appsettings.Production.json");
+var extraConfigError = (Exception?)null;
+try
+{
+    builder.Configuration.AddJsonFile(extraConfigPath, optional: true, reloadOnChange: false);
+}
+catch (Exception ex) when (ex is FormatException or InvalidDataException)
+{
+    // Chưa dựng được logger ở đây, nên giữ lại để báo sau khi có app.Logger.
+    extraConfigError = ex;
+}
 
 // CONTEXT.md §4: backend không được phơi ra Wi-Fi nhà. Cách thực thi khác nhau
 // giữa chạy thẳng trên máy và chạy trong container — xem BindMode.
@@ -90,6 +104,8 @@ builder.Services.Configure<TailscaleOptions>(
     builder.Configuration.GetSection(TailscaleOptions.SectionName));
 builder.Services.Configure<MeshCentralOptions>(
     builder.Configuration.GetSection(MeshCentralOptions.SectionName));
+builder.Services.Configure<BackupOptions>(
+    builder.Configuration.GetSection(BackupOptions.SectionName));
 
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<Hub.Core.Authentication.IPasswordHasher, IdentityPasswordHasher>();
@@ -97,6 +113,21 @@ builder.Services.AddScoped<IAuthStore, EfAuthStore>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<LocalSetupPolicy>();
 builder.Services.AddScoped<AntiforgeryFilter>();
+
+// Năng lực 3 — sao lưu qua rclone (§2.3: gọi binary, không tự viết client Drive).
+builder.Services.AddScoped<IBackupStore, EfBackupStore>();
+builder.Services.AddSingleton<IBackupRunner, RcloneRunner>();
+
+// Singleton: khoá phải dùng chung toàn ứng dụng, nếu không hai request đồng
+// thời mỗi cái giữ một khoá riêng và cùng chạy rclone lên một đích.
+builder.Services.AddSingleton<BackupJobLocks>();
+
+builder.Services.AddScoped(provider => new BackupService(
+    provider.GetRequiredService<IBackupRunner>(),
+    provider.GetRequiredService<IBackupStore>(),
+    provider.GetRequiredService<IClock>(),
+    provider.GetRequiredService<IOptions<BackupOptions>>().Value,
+    provider.GetRequiredService<BackupJobLocks>()));
 
 // Năng lực 1 — đọc thiết bị từ Tailscale.
 // HttpClient qua factory, không new thủ công (§3: tránh cạn socket).
@@ -149,11 +180,36 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<HubDbContext>();
     await DatabaseInitializer.MigrateAsync(dbContext, app.Logger);
+
+    // Máy tắt giữa lúc sao lưu thì bản ghi kẹt ở trạng thái "đang chạy" mãi
+    // mãi, và giao diện hiện tiến trình cho một rclone đã chết từ lâu.
+    var backupStore = scope.ServiceProvider.GetRequiredService<IBackupStore>();
+    var stale = await backupStore.CancelStaleRunsAsync();
+    if (stale > 0)
+    {
+        app.Logger.LogWarning(
+            "Đánh dấu {Count} lần sao lưu dở dang là đã huỷ (hub tắt giữa chừng)", stale);
+    }
 }
 
 app.Logger.LogInformation(
     "Hub khởi động — chế độ bind {BindMode}, thư mục dữ liệu {DataDirectory}",
     bindMode, dataDirectory);
+
+if (extraConfigError is not null)
+{
+    // §6.5 mục 4: không log đường dẫn. Nêu tên file, không nêu đường dẫn đầy đủ.
+    app.Logger.LogError(
+        extraConfigError,
+        "Không đọc được appsettings.Production.json trong thư mục dữ liệu — cú pháp JSON hỏng. " +
+        "Hub vẫn chạy nhưng THIẾU cấu hình trong file đó.");
+}
+
+// Sai cấu hình sao lưu là lỗi im lặng: chỉ lộ ra vào ngày cần khôi phục.
+BackupConfigurationCheck.Validate(
+    app.Services.GetRequiredService<IOptions<BackupOptions>>().Value,
+    dataDirectory,
+    app.Logger);
 
 // §6.5 mục 7: không hiện chi tiết lỗi ra frontend. Stack trace vào log,
 // người dùng chỉ thấy thông báo chung.
@@ -206,6 +262,7 @@ app.MapAntiforgeryEndpoints();
 app.MapAuthEndpoints();
 app.MapDeviceEndpoints();
 app.MapMeshCentralEndpoints();
+app.MapBackupEndpoints();
 
 // React Router điều hướng phía client: /devices không có file tương ứng trên đĩa.
 // Fallback trả index.html để router tự xử lý đường dẫn.
