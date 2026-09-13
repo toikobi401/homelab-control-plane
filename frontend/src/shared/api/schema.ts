@@ -374,39 +374,21 @@ export interface paths {
         get: operations["GetDevice"];
         put?: never;
         post?: never;
-        /** Gỡ thiết bị khỏi sổ đăng ký */
-        delete: operations["DeleteDevice"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Agent tự đăng ký (xác thực bằng khoá chung) */
-        post: operations["RegisterDevice"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/devices/registered": {
+    "/api/backup": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Danh sách thiết bị đã đăng ký kèm trạng thái duyệt */
-        get: operations["GetRegisteredDevices"];
+        /** Danh sách công việc sao lưu kèm trạng thái lần chạy gần nhất */
+        get: operations["GetBackupStatus"];
         put?: never;
         post?: never;
         delete?: never;
@@ -415,49 +397,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/devices/{deviceId}/approve": {
+    "/api/backup/history": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** Duyệt thiết bị để nó nhận được lệnh */
-        post: operations["ApproveDevice"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/{deviceId}/revoke-approval": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Thu hồi duyệt */
-        post: operations["RevokeDeviceApproval"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/commands": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Nhật ký kiểm toán lệnh điều khiển */
-        get: operations["GetDeviceCommands"];
+        /** Lịch sử các lần sao lưu */
+        get: operations["GetBackupHistory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -466,7 +414,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/devices/{deviceId}/shutdown": {
+    "/api/backup/{jobName}/run": {
         parameters: {
             query?: never;
             header?: never;
@@ -475,59 +423,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Tắt máy */
-        post: operations["ShutdownDevice"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/{deviceId}/restart": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Khởi động lại máy */
-        post: operations["RestartDevice"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/{deviceId}/sleep": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Cho máy ngủ */
-        post: operations["SleepDevice"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/{deviceId}/lock": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Khoá màn hình */
-        post: operations["LockDevice"];
+        /** Chạy một công việc sao lưu */
+        post: operations["RunBackupJob"];
         delete?: never;
         options?: never;
         head?: never;
@@ -545,19 +442,38 @@ export interface components {
         AuthStatus: {
             passwordConfigured: boolean;
         };
+        BackupJobDto: {
+            name: string;
+            encrypted: boolean;
+            deleteExtra: boolean;
+            isRunning: boolean;
+            latestRun: null | components["schemas"]["BackupRunDto"];
+        };
+        BackupRunDto: {
+            /** Format: int32 */
+            id: number | string;
+            jobName: string;
+            status: string;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            finishedAt: null | string;
+            /** Format: int64 */
+            filesTransferred: number | string;
+            /** Format: int64 */
+            bytesTransferred: number | string;
+            /** Format: int64 */
+            errors: number | string;
+            errorMessage: null | string;
+        };
+        BackupStatusDto: {
+            rcloneAvailable: boolean;
+            rcloneVersion: null | string;
+            jobs: components["schemas"]["BackupJobDto"][];
+        };
         ChangePasswordRequest: {
             currentPassword: string;
             newPassword: string;
-        };
-        CommandAuditDto: {
-            /** Format: int32 */
-            id: number | string;
-            /** Format: date-time */
-            requestedAt: string;
-            deviceHostname: string;
-            action: string;
-            succeeded: boolean;
-            failureReason: null | string;
         };
         DeviceDto: {
             id: string;
@@ -589,32 +505,6 @@ export interface components {
         MeshCentralConfigDto: {
             configured: boolean;
             url: null | string;
-        };
-        RegisterDeviceRequest: {
-            hostname: string;
-            operatingSystem: string;
-            macAddress: null | string;
-            lanLabel: null | string;
-            isBackendHost: boolean;
-            /** @default false */
-            fromAgent: boolean;
-        };
-        RegisteredDeviceDto: {
-            /** Format: uuid */
-            id: string;
-            hostname: string;
-            operatingSystem: string;
-            tailnetAddress: null | string;
-            macAddress: null | string;
-            lanLabel: null | string;
-            isApproved: boolean;
-            isBackendHost: boolean;
-            /** Format: date-time */
-            registeredAt: string;
-            /** Format: date-time */
-            lastSeenAt: string;
-            /** Format: date-time */
-            agentLastSeenAt: null | string;
         };
         RevokeAllResponse: {
             /** Format: int32 */
@@ -754,51 +644,7 @@ export interface operations {
             };
         };
     };
-    DeleteDevice: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                deviceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RegisterDevice: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegisterDeviceRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegisteredDeviceDto"];
-                };
-            };
-        };
-    };
-    GetRegisteredDevices: {
+    GetBackupStatus: {
         parameters: {
             query?: never;
             header?: never;
@@ -813,54 +659,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegisteredDeviceDto"][];
+                    "application/json": components["schemas"]["BackupStatusDto"];
                 };
             };
         };
     };
-    ApproveDevice: {
+    GetBackupHistory: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                deviceId: string;
+            query?: {
+                limit?: number | string;
             };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    RevokeDeviceApproval: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                deviceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    GetDeviceCommands: {
-        parameters: {
-            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -873,88 +681,30 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CommandAuditDto"][];
+                    "application/json": components["schemas"]["BackupRunDto"][];
                 };
             };
         };
     };
-    ShutdownDevice: {
+    RunBackupJob: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                deviceId: string;
+                jobName: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description No Content */
-            204: {
+            /** @description OK */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
-            };
-        };
-    };
-    RestartDevice: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                deviceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
+                content: {
+                    "application/json": components["schemas"]["BackupRunDto"];
                 };
-                content?: never;
-            };
-        };
-    };
-    SleepDevice: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                deviceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    LockDevice: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                deviceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
