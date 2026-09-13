@@ -189,6 +189,57 @@ public sealed class BackupService
     public Task<Result<string>> ProbeRcloneAsync(CancellationToken cancellationToken = default) =>
         _runner.ProbeAsync(cancellationToken);
 
+    public Task<Result<IReadOnlyList<RcloneRemote>>> ListRemotesAsync(
+        CancellationToken cancellationToken = default) =>
+        _runner.ListRemotesAsync(cancellationToken);
+
+    /// <summary>
+    /// Đích có trỏ vào một remote CÓ THẬT không.
+    ///
+    /// Tên remote phân biệt hoa thường: khai <c>Hub:backup</c> trong khi remote
+    /// tên <c>hub</c> thì rclone báo "didn't find section in config file" và
+    /// job hỏng lúc CHẠY, không phải lúc lưu — người dùng chỉ thấy "rclone thất
+    /// bại (mã 1)". Kiểm tra ngay lúc lưu để nói đúng chỗ sai. Đã gặp thật.
+    ///
+    /// Không đọc được danh sách remote thì CHO QUA: rclone bản cũ có thể không
+    /// hỗ trợ <c>--json</c>, và chặn người dùng vì ta không đọc được là tệ hơn.
+    /// </summary>
+    public async Task<Result> ValidateDestinationAsync(
+        string destination,
+        CancellationToken cancellationToken = default)
+    {
+        var separator = destination.IndexOf(':');
+        if (separator <= 0)
+        {
+            return Result.Failure(ResultError.Validation(
+                "Đích phải có dạng remote:đường/dẫn, ví dụ hub:backup/tai-lieu."));
+        }
+
+        var remoteName = destination[..separator];
+
+        var remotes = await _runner.ListRemotesAsync(cancellationToken);
+        if (remotes.IsFailure || remotes.Value.Count == 0)
+        {
+            return Result.Success();
+        }
+
+        // So CHÍNH XÁC hoa thường — đó là cách rclone so.
+        if (remotes.Value.Any(r => string.Equals(r.Name, remoteName, StringComparison.Ordinal)))
+        {
+            return Result.Success();
+        }
+
+        // Gợi ý khi chỉ sai hoa thường: đây là lỗi hay gặp nhất.
+        var similar = remotes.Value.FirstOrDefault(r =>
+            string.Equals(r.Name, remoteName, StringComparison.OrdinalIgnoreCase));
+
+        var message = similar.Name is not null
+            ? $"Không có remote tên \"{remoteName}\". Ý bạn là \"{similar.Name}\"? Tên remote phân biệt hoa thường."
+            : $"Không có remote tên \"{remoteName}\". Các remote hiện có: {string.Join(", ", remotes.Value.Select(r => r.Name))}.";
+
+        return Result.Failure(ResultError.Validation(message));
+    }
+
     /// <summary>Job này có đang chạy không.</summary>
     public bool IsRunning(string jobName) => _locks.IsHeld(jobName);
 }

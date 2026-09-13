@@ -448,6 +448,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/backup/remotes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Danh sách remote đã khai trong rclone.conf */
+        get: operations["GetRcloneRemotes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/backup/presets": {
         parameters: {
             query?: never;
@@ -532,6 +549,7 @@ export interface components {
             encrypted: boolean;
             deleteExtra: boolean;
             isRunning: boolean;
+            isEditable: boolean;
             latestRun: null | components["schemas"]["BackupRunDto"];
         };
         BackupRunDto: {
@@ -609,6 +627,10 @@ export interface components {
         MeshCentralConfigDto: {
             configured: boolean;
             url: null | string;
+        };
+        RemoteDto: {
+            name: string;
+            type: string;
         };
         RevokeAllResponse: {
             /** Format: int32 */
@@ -842,6 +864,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DirectoryListingDto"];
+                };
+            };
+        };
+    };
+    GetRcloneRemotes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteDto"][];
                 };
             };
         };

@@ -158,6 +158,73 @@ public sealed class BackupServiceTests
         Assert.True(result.IsSuccess);
     }
 
+    /// <summary>
+    /// Lỗi người dùng đã gặp thật: khai đích `Hub:backup` trong khi remote tên
+    /// `hub`. rclone phân biệt hoa thường, báo "didn't find section in config
+    /// file" và job hỏng lúc CHẠY — giao diện chỉ hiện "rclone thất bại (mã 1)",
+    /// không chỉ ra được chỗ sai.
+    /// </summary>
+    [Fact]
+    public async Task Dich_sai_hoa_thuong_thi_tu_choi_kem_goi_y()
+    {
+        var runner = new FakeBackupRunner();
+        var service = CreateService(runner, OptionsWith(Job()));
+
+        var result = await service.ValidateDestinationAsync("Gdrive:backup");
+
+        Assert.True(result.IsFailure);
+        // Phải gợi ý đúng tên, không chỉ nói "không tìm thấy".
+        Assert.Contains("gdrive", result.Error!.Value.Message);
+    }
+
+    [Fact]
+    public async Task Dich_dung_ten_remote_thi_cho_qua()
+    {
+        var service = CreateService(new FakeBackupRunner(), OptionsWith(Job()));
+
+        var result = await service.ValidateDestinationAsync("gdrive:backup/tai-lieu");
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task Remote_khong_ton_tai_thi_liet_ke_cac_remote_co_san()
+    {
+        var service = CreateService(new FakeBackupRunner(), OptionsWith(Job()));
+
+        var result = await service.ValidateDestinationAsync("khongcoremote:x");
+
+        Assert.True(result.IsFailure);
+        Assert.Contains("gdrive", result.Error!.Value.Message);
+    }
+
+    [Fact]
+    public async Task Dich_thieu_dau_hai_cham_thi_tu_choi()
+    {
+        var service = CreateService(new FakeBackupRunner(), OptionsWith(Job()));
+
+        var result = await service.ValidateDestinationAsync("khong-co-dau-hai-cham");
+
+        Assert.True(result.IsFailure);
+        Assert.Contains("remote:", result.Error!.Value.Message);
+    }
+
+    /// <summary>
+    /// rclone bản cũ không hỗ trợ `--json`. Chặn người dùng vì TA không đọc
+    /// được danh sách là tệ hơn cho qua — họ vẫn có thể khai đúng.
+    /// </summary>
+    [Fact]
+    public async Task Khong_doc_duoc_danh_sach_remote_thi_cho_qua()
+    {
+        var runner = new FakeBackupRunner();
+        runner.Remotes.Clear();
+        var service = CreateService(runner, OptionsWith(Job()));
+
+        var result = await service.ValidateDestinationAsync("batky:x");
+
+        Assert.True(result.IsSuccess);
+    }
+
     [Fact]
     public async Task Lich_su_gioi_han_theo_HistoryLimit()
     {
@@ -206,6 +273,12 @@ internal sealed class FakeBackupRunner : IBackupRunner
 
     public Task<Result<string>> ProbeAsync(CancellationToken cancellationToken) =>
         Task.FromResult(Result.Success("rclone v1.75.1"));
+
+    /// <summary>Remote giả để test kiểm tra đích; tên khớp với Job() mặc định.</summary>
+    public List<RcloneRemote> Remotes { get; } = [new("gdrive", "drive")];
+
+    public Task<Result<IReadOnlyList<RcloneRemote>>> ListRemotesAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(Result.Success<IReadOnlyList<RcloneRemote>>(Remotes));
 }
 
 internal sealed class InMemoryBackupStore : IBackupStore

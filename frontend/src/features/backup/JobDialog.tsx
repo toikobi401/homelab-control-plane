@@ -14,7 +14,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { useFilterPresets, useSaveBackupJob } from '@/shared/api/backup'
+import { useFilterPresets, useRcloneRemotes, useSaveBackupJob } from '@/shared/api/backup'
 
 import { FolderPicker } from './FolderPicker'
 
@@ -27,18 +27,33 @@ import { FolderPicker } from './FolderPicker'
 export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [name, setName] = useState('')
   const [source, setSource] = useState<string | null>(null)
-  const [destination, setDestination] = useState('')
+  // Tách đích thành hai phần: remote chọn từ danh sách, đường dẫn gõ tay.
+  // Gộp làm một ô khiến gõ nhầm hoa thường ("Hub:" thay vì "hub:") và job hỏng
+  // lúc CHẠY, không phải lúc lưu — người dùng chỉ thấy "rclone thất bại (mã 1)".
+  const [remote, setRemote] = useState('')
+  const [destinationPath, setDestinationPath] = useState('')
   const [encrypted, setEncrypted] = useState(false)
   const [deleteExtra, setDeleteExtra] = useState(false)
   const [filterContent, setFilterContent] = useState('')
 
   const presets = useFilterPresets(open)
+  const remotes = useRcloneRemotes(open)
+
+  // Danh sách rỗng nghĩa là không đọc được rclone.conf — rơi về ô gõ tự do thay
+  // vì chặn người dùng vì lỗi của ta.
+  const remoteList = remotes.data ?? []
+  const canPickRemote = remoteList.length > 0
+
+  const destination = canPickRemote
+    ? (remote === '' ? '' : `${remote}:${destinationPath.replace(/^\/+/, '')}`)
+    : destinationPath
   const saveJob = useSaveBackupJob()
 
   function reset() {
     setName('')
     setSource(null)
-    setDestination('')
+    setRemote('')
+    setDestinationPath('')
     setEncrypted(false)
     setDeleteExtra(false)
     setFilterContent('')
@@ -120,16 +135,49 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
 
             <div className="space-y-1.5">
               <Label htmlFor="job-destination">Đích trên cloud</Label>
-              <Input
-                id="job-destination"
-                value={destination}
-                onChange={(event) => setDestination(event.target.value)}
-                placeholder="hub:backup/tai-lieu"
-                autoComplete="off"
-              />
+
+              {canPickRemote ? (
+                <div className="flex gap-2">
+                  {/* Chọn từ danh sách thật, không gõ tên remote — tên phân biệt
+                      hoa thường và gõ nhầm chỉ lộ ra lúc chạy job. */}
+                  <select
+                    aria-label="Remote"
+                    value={remote}
+                    onChange={(event) => setRemote(event.target.value)}
+                    className="h-9 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+                  >
+                    <option value="">Chọn remote…</option>
+                    {remoteList.map((item) => (
+                      <option key={item.name} value={item.name}>
+                        {item.name} ({item.type})
+                      </option>
+                    ))}
+                  </select>
+
+                  <Input
+                    id="job-destination"
+                    value={destinationPath}
+                    onChange={(event) => setDestinationPath(event.target.value)}
+                    placeholder="backup/tai-lieu"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </div>
+              ) : (
+                <Input
+                  id="job-destination"
+                  value={destinationPath}
+                  onChange={(event) => setDestinationPath(event.target.value)}
+                  placeholder="hub:backup/tai-lieu"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              )}
+
               <p className="text-xs text-muted-foreground">
-                Dạng <code>remote:đường/dẫn</code> của rclone. Trỏ vào remote đã mã hoá thì bật ổ
-                khoá bên dưới.
+                {canPickRemote
+                  ? 'Chọn remote rồi gõ đường dẫn bên trong nó. Remote crypt thì bật ổ khoá bên dưới.'
+                  : 'Dạng remote:đường/dẫn của rclone — không đọc được danh sách remote nên phải gõ tay.'}
               </p>
             </div>
 

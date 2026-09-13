@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -24,6 +24,12 @@ const roots = {
   entries: [{ name: 'D:\\Du lieu', path: 'D:\\Du lieu' }],
 }
 
+/** Remote thật của rclone — tên phân biệt hoa thường. */
+const remotes = [
+  { name: 'hub', type: 'drive' },
+  { name: 'hub-crypt', type: 'crypt' },
+]
+
 const presets = [
   {
     name: 'Dự án code',
@@ -39,6 +45,9 @@ function stubApi({ saveResponse }: { saveResponse?: { body: unknown; status: num
 
     if (url.includes('/api/antiforgery/token')) {
       return Promise.resolve(Response.json({ token: 'test-token', headerName: 'X-CSRF-Token' }))
+    }
+    if (url.includes('/api/backup/remotes')) {
+      return Promise.resolve(Response.json(remotes))
     }
     if (url.includes('/api/backup/presets')) {
       return Promise.resolve(Response.json(presets))
@@ -73,7 +82,9 @@ function savedBody(fetchMock: ReturnType<typeof stubApi>): unknown {
 async function fillRequiredFields() {
   await userEvent.type(screen.getByLabelText('Tên'), 'tai-lieu')
   await userEvent.click(await screen.findByText('D:\\Du lieu'))
-  await userEvent.type(screen.getByLabelText('Đích trên cloud'), 'hub:backup/tai-lieu')
+  // Đích tách hai phần: chọn remote từ danh sách, gõ đường dẫn bên trong.
+  await userEvent.selectOptions(await screen.findByLabelText('Remote'), 'hub')
+  await userEvent.type(screen.getByLabelText('Đích trên cloud'), 'backup/tai-lieu')
 }
 
 describe('JobDialog', () => {
@@ -100,7 +111,8 @@ describe('JobDialog', () => {
 
     await userEvent.type(screen.getByLabelText('Tên'), 'anh-cu')
     await userEvent.type(screen.getByLabelText('Thư mục nguồn'), 'E:\\Anh\\2026')
-    await userEvent.type(screen.getByLabelText('Đích trên cloud'), 'hub:backup/anh-cu')
+    await userEvent.selectOptions(await screen.findByLabelText('Remote'), 'hub')
+    await userEvent.type(screen.getByLabelText('Đích trên cloud'), 'backup/anh-cu')
     await userEvent.click(screen.getByRole('button', { name: 'Tạo công việc' }))
 
     await waitFor(() => expect(savedBody(fetchMock)).toBeTruthy())
@@ -118,6 +130,33 @@ describe('JobDialog', () => {
     await userEvent.click(await screen.findByText('D:\\Du lieu'))
 
     expect(screen.getByLabelText('Thư mục nguồn')).toHaveValue('D:\\Du lieu')
+  })
+
+  /**
+   * Lỗi đã gặp thật: gõ `Hub:backup` trong khi remote tên `hub`. rclone phân
+   * biệt hoa thường nên job hỏng lúc CHẠY, và giao diện chỉ hiện "rclone thất
+   * bại (mã 1)". Chọn từ danh sách thì không gõ sai tên được nữa.
+   */
+  it('ghép remote đã chọn với đường dẫn thành đích đầy đủ', async () => {
+    const fetchMock = stubApi()
+
+    renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
+    await fillRequiredFields()
+    await userEvent.click(screen.getByRole('button', { name: 'Tạo công việc' }))
+
+    await waitFor(() => expect(savedBody(fetchMock)).toBeTruthy())
+
+    expect(savedBody(fetchMock)).toMatchObject({ destination: 'hub:backup/tai-lieu' })
+  })
+
+  it('liệt kê remote thật để chọn', async () => {
+    stubApi()
+
+    renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
+
+    const select = await screen.findByLabelText('Remote')
+    expect(within(select).getByRole('option', { name: /hub \(drive\)/ })).toBeInTheDocument()
+    expect(within(select).getByRole('option', { name: /hub-crypt \(crypt\)/ })).toBeInTheDocument()
   })
 
   it('gửi đúng dữ liệu đã nhập', async () => {

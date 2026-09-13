@@ -34,6 +34,7 @@ function job(overrides: Record<string, unknown> = {}) {
     encrypted: false,
     deleteExtra: false,
     isRunning: false,
+    isEditable: true,
     latestRun: run(),
     ...overrides,
   }
@@ -99,6 +100,41 @@ describe('BackupPage', () => {
     // Số lượng và dung lượng — không có tên tệp.
     expect(screen.getByText(/1\.204 tệp/)).toBeInTheDocument()
     expect(screen.getByText(/3,2 GiB/)).toBeInTheDocument()
+  })
+
+  /**
+   * Job khai tay trong appsettings không xoá được qua API — hiện nút xoá cho nó
+   * là bẫy người dùng: bấm vào chắc chắn nhận 404. Đã gặp thật.
+   */
+  it('ẩn nút xoá với công việc khai trong file cấu hình', async () => {
+    stubApi({
+      status: {
+        rcloneAvailable: true,
+        rcloneVersion: 'rclone v1.75.1',
+        jobs: [job({ name: 'hub-data', isEditable: false })],
+      },
+    })
+
+    renderWithProviders(<BackupPage />)
+    await screen.findByText('hub-data')
+
+    expect(screen.queryByLabelText('Xoá hub-data')).not.toBeInTheDocument()
+    expect(screen.getByText('khai trong cấu hình')).toBeInTheDocument()
+  })
+
+  it('hiện nút xoá với công việc tạo từ giao diện', async () => {
+    stubApi({
+      status: {
+        rcloneAvailable: true,
+        rcloneVersion: 'rclone v1.75.1',
+        jobs: [job({ name: 'tai-lieu', isEditable: true })],
+      },
+    })
+
+    renderWithProviders(<BackupPage />)
+    await screen.findByText('tai-lieu')
+
+    expect(screen.getByLabelText('Xoá tai-lieu')).toBeInTheDocument()
   })
 
   it('KHÔNG hiện đường dẫn tệp — DTO cố tình không trả Source/Destination', async () => {

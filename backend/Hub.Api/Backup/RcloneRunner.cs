@@ -52,6 +52,62 @@ public sealed class RcloneRunner : IBackupRunner
         }
     }
 
+    public async Task<Result<IReadOnlyList<RcloneRemote>>> ListRemotesAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // --json cho cau truc on dinh; doc text thi doi theo phien ban.
+            var (exitCode, output, _) = await RunProcessAsync(
+                ["listremotes", "--json", "--long"], onStats: null, cancellationToken);
+
+            if (exitCode != 0)
+            {
+                return Result.Failure<IReadOnlyList<RcloneRemote>>(ResultError.Validation(
+                    "Không đọc được danh sách remote của rclone."));
+            }
+
+            var remotes = ParseRemotes(output);
+            return Result.Success(remotes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không liệt kê được remote của rclone");
+            return Result.Failure<IReadOnlyList<RcloneRemote>>(ResultError.Validation(
+                "Không đọc được danh sách remote của rclone."));
+        }
+    }
+
+    private static IReadOnlyList<RcloneRemote> ParseRemotes(string output)
+    {
+        var trimmed = output.Trim();
+        if (trimmed.Length == 0) { return []; }
+
+        try
+        {
+            using var document = JsonDocument.Parse(trimmed);
+            if (document.RootElement.ValueKind != JsonValueKind.Array) { return []; }
+
+            var result = new List<RcloneRemote>();
+            foreach (var item in document.RootElement.EnumerateArray())
+            {
+                var name = item.TryGetProperty("name", out var n) ? n.GetString() : null;
+                if (string.IsNullOrWhiteSpace(name)) { continue; }
+
+                var type = item.TryGetProperty("type", out var t) ? t.GetString() : null;
+                result.Add(new RcloneRemote(name, type ?? string.Empty));
+            }
+
+            return result;
+        }
+        catch (JsonException)
+        {
+            // Phien ban rclone cu khong ho tro --json: khong doan, tra rong de
+            // giao dien roi ve o go tu do.
+            return [];
+        }
+    }
+
     public async Task<Result<BackupRunStats>> RunAsync(
         BackupJobOptions job,
         CancellationToken cancellationToken)

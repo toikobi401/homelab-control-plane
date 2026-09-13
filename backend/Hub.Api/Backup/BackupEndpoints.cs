@@ -37,6 +37,10 @@ public static class BackupEndpoints
             .WithName("BrowseBackupDirectories")
             .WithSummary("Duyệt thư mục trên máy chạy hub để chọn nguồn sao lưu");
 
+        group.MapGet("/remotes", GetRemotesAsync)
+            .WithName("GetRcloneRemotes")
+            .WithSummary("Danh sách remote đã khai trong rclone.conf");
+
         group.MapGet("/presets", GetPresets)
             .WithName("GetBackupFilterPresets")
             .WithSummary("Mẫu nội dung file lọc");
@@ -60,9 +64,17 @@ public static class BackupEndpoints
 
     private static async Task<Ok<BackupStatusDto>> GetStatusAsync(
         BackupService backupService,
+        IBackupJobStore jobStore,
         CancellationToken cancellationToken)
     {
         var jobs = await backupService.GetJobsAsync(cancellationToken);
+
+        // Job nào nằm trong store thì sửa/xoá được; job khai tay trong
+        // appsettings thì không. Giao diện dựa vào cờ này để ẩn nút xoá thay vì
+        // hiện một nút mà bấm vào chắc chắn nhận 404.
+        var stored = await jobStore.GetJobsAsync(cancellationToken);
+        var editable = new HashSet<string>(
+            stored.Select(j => j.Name), StringComparer.OrdinalIgnoreCase);
 
         // Kiểm tra rclone ngay ở màn hình trạng thái: thiếu nó là lỗi cấu hình
         // của người vận hành, phải nói rõ trước khi họ bấm "chạy" rồi mới thấy
@@ -79,6 +91,7 @@ public static class BackupEndpoints
                 Encrypted: job.Encrypted,
                 DeleteExtra: job.DeleteExtra,
                 IsRunning: backupService.IsRunning(job.Name),
+                IsEditable: editable.Contains(job.Name),
                 LatestRun: latest is null ? null : ToDto(latest)));
         }
 
@@ -138,6 +151,27 @@ public static class BackupEndpoints
             Entries: [.. listing.Entries.Select(e => new DirectoryEntryDto(e.Name, e.Path))]));
     }
 
+    /// <summary>
+    /// Remote của rclone, để giao diện cho chọn thay vì gõ tay.
+    ///
+    /// Tên remote phân biệt hoa thường; gõ nhầm thì job hỏng lúc CHẠY chứ không
+    /// phải lúc lưu, và người dùng chỉ thấy "rclone thất bại (mã 1)".
+    /// </summary>
+    private static async Task<Ok<IReadOnlyList<RemoteDto>>> GetRemotesAsync(
+        BackupService backupService,
+        CancellationToken cancellationToken)
+    {
+        var result = await backupService.ListRemotesAsync(cancellationToken);
+
+        // Không đọc được thì trả rỗng, không phải lỗi: giao diện rơi về ô gõ tự
+        // do, vẫn dùng được.
+        IReadOnlyList<RemoteDto> remotes = result.IsSuccess
+            ? [.. result.Value.Select(r => new RemoteDto(r.Name, r.Type))]
+            : [];
+
+        return TypedResults.Ok(remotes);
+    }
+
     private static Ok<IReadOnlyList<FilterPresetDto>> GetPresets()
     {
         IReadOnlyList<FilterPresetDto> presets =
@@ -171,6 +205,16 @@ public static class BackupEndpoints
         {
             return ToProblem(ResultError.Conflict(
                 "Đã có công việc cùng tên khai trong file cấu hình. Đổi tên khác."));
+        }
+
+        // Kiem tra remote co that truoc khi luu — de den luc chay moi hong thi
+        // nguoi dung chi thay "rclone that bai (ma 1)".
+        var destinationCheck = await backupService.ValidateDestinationAsync(
+            request.Destination.Trim(), cancellationToken);
+
+        if (destinationCheck.IsFailure)
+        {
+            return ToProblem(destinationCheck.Error!.Value);
         }
 
         var job = new BackupJobOptions
@@ -268,11 +312,17 @@ public sealed record BackupStatusDto(
 
 /// <param name="Encrypted">Đích có mã hoá không — hiện lên giao diện để thấy rõ file nào được bảo vệ.</param>
 /// <param name="DeleteExtra">Có xoá file thừa ở đích không (sync) hay chỉ thêm (copy).</param>
+/// <param name="IsEditable">
+/// Sửa/xoá được qua API không. Job khai tay trong <c>appsettings</c> thì
+/// <c>false</c> — giao diện phải ẩn nút xoá thay vì hiện một nút mà bấm vào
+/// chắc chắn nhận 404.
+/// </param>
 public sealed record BackupJobDto(
     string Name,
     bool Encrypted,
     bool DeleteExtra,
     bool IsRunning,
+    bool IsEditable,
     BackupRunDto? LatestRun);
 
 public sealed record BackupRunDto(
@@ -294,6 +344,10 @@ public sealed record DirectoryListingDto(
     IReadOnlyList<DirectoryEntryDto> Entries);
 
 public sealed record DirectoryEntryDto(string Name, string Path);
+
+/// <param name="Name">Tên remote, KHÔNG kèm dấu hai chấm.</param>
+/// <param name="Type">Loại remote: <c>drive</c>, <c>crypt</c>, …</param>
+public sealed record RemoteDto(string Name, string Type);
 
 /// <param name="Content">Nội dung file lọc, ghi nguyên văn — .NET không parse.</param>
 public sealed record FilterPresetDto(string Name, string Description, string Content);

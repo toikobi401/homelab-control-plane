@@ -238,21 +238,28 @@ function JobCard({ job }: { job: BackupJobDto }) {
               {job.isRunning ? 'Đang chạy' : 'Chạy ngay'}
             </Button>
 
-            {/* Chỉ xoá khỏi danh sách công việc — KHÔNG đụng tới tệp đã sao lưu
-                trên cloud, cũng không xoá .backupignore trong thư mục người dùng. */}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              disabled={job.isRunning || deleteJob.isPending}
-              onClick={() => {
-                if (confirm(`Xoá công việc "${job.name}"? Tệp đã sao lưu trên cloud vẫn còn.`)) {
-                  deleteJob.mutate(job.name)
-                }
-              }}
-              aria-label={`Xoá ${job.name}`}
-            >
-              <Trash2 className="size-3.5" aria-hidden="true" />
-            </Button>
+            {/* Chỉ job tạo từ giao diện mới xoá được. Job khai tay trong
+                appsettings không có nút — hiện một nút mà bấm vào chắc chắn
+                nhận 404 là bẫy người dùng. */}
+            {job.isEditable ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={job.isRunning || deleteJob.isPending}
+                onClick={() => {
+                  if (confirm(`Xoá công việc "${job.name}"? Tệp đã sao lưu trên cloud vẫn còn.`)) {
+                    deleteJob.mutate(job.name)
+                  }
+                }}
+                aria-label={`Xoá ${job.name}`}
+              >
+                <Trash2 className="size-3.5" aria-hidden="true" />
+              </Button>
+            ) : (
+              <span className="text-xs text-muted-foreground" title="Sửa trong appsettings">
+                khai trong cấu hình
+              </span>
+            )}
           </span>
         </div>
 

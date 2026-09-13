@@ -12,6 +12,7 @@ export type FilterPresetDto = components['schemas']['FilterPresetDto']
 export type FilterContentDto = components['schemas']['FilterContentDto']
 export type SaveJobRequest = components['schemas']['SaveJobRequest']
 export type SaveJobResultDto = components['schemas']['SaveJobResultDto']
+export type RemoteDto = components['schemas']['RemoteDto']
 
 /** Giá trị `BackupRunStatus` bên .NET, gửi xuống dưới dạng chuỗi. */
 export type BackupRunStatus = 'Running' | 'Succeeded' | 'Failed' | 'Cancelled'
@@ -162,5 +163,25 @@ export function useDeleteBackupJob() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: backupStatusQueryKey })
     },
+  })
+}
+
+export const backupRemotesQueryKey = ['backup', 'remotes'] as const
+
+/**
+ * Remote đã khai trong rclone.conf.
+ *
+ * Để người dùng chọn thay vì gõ tay: tên remote phân biệt hoa thường, gõ `Hub:`
+ * trong khi remote tên `hub` thì job hỏng lúc CHẠY chứ không phải lúc lưu.
+ *
+ * Danh sách rỗng nghĩa là không đọc được (rclone cũ, hoặc chưa cấu hình) —
+ * giao diện rơi về ô gõ tự do thay vì chặn người dùng.
+ */
+export function useRcloneRemotes(enabled = true) {
+  return useQuery({
+    queryKey: backupRemotesQueryKey,
+    queryFn: ({ signal }) => apiFetch<RemoteDto[]>('/api/backup/remotes', { signal }),
+    staleTime: 60_000,
+    enabled,
   })
 }
