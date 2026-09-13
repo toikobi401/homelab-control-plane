@@ -14,9 +14,10 @@ Không phải sản phẩm thương mại, không đa người dùng, không bá
 Hub kết nối: 1 điện thoại Android, 1 iPhone, 1 máy tính để bàn Windows, 1 laptop Windows, và về sau
 là một NAS cá nhân.
 
-**Hệ thống là một ứng dụng web.** Backend .NET chạy trên PC, frontend React chạy trong trình duyệt.
-Mọi thiết bị — iPhone, Android, desktop — đều truy cập bằng trình duyệt qua một miền nội bộ. Không
-có ứng dụng native nào cả.
+**Hệ thống chủ yếu là một ứng dụng web.** Backend .NET chạy trên PC, frontend React chạy trong trình
+duyệt. Mọi thiết bị — iPhone, Android, desktop — đều truy cập bằng trình duyệt qua một miền nội bộ.
+Ngoại lệ hẹp duy nhất: một app React Native cho **Android** phục vụ riêng việc sao lưu ảnh nền — xem
+§5d và non-goal đã sửa bên dưới.
 
 Chín năng lực, theo thứ tự xây dựng:
 
@@ -24,7 +25,7 @@ Chín năng lực, theo thứ tự xây dựng:
 |---|---|---|
 | 1 | Sổ đăng ký thiết bị + hiện diện (online/offline, lần cuối thấy) | ✅ Xong — đọc từ Tailscale |
 | 2 | Duyệt và truyền file giữa các thiết bị | **Giao cho MeshCentral** — không tự xây (§2.3) |
-| 3 | Sao lưu lên cloud storage, sau đó lên NAS cá nhân | **Backend xong** (rclone sync) — chưa có giao diện, chưa có lịch tự động |
+| 3 | Sao lưu lên cloud storage, sau đó lên NAS cá nhân — §5d | **Backend PC xong** (rclone sync) — chưa filter file, chưa có ảnh di động |
 | 4 | Điều khiển màn hình từ xa vào PC/laptop Windows | **Giao cho MeshCentral** |
 | 5 | Đọc truyện tranh qua API công khai (MangaDex, …) | Chưa bắt đầu |
 | 6 | Tắt, mở, khởi động lại máy từ xa (đánh thức qua waker — §5a.1) | **Giao cho MeshCentral** |
@@ -39,8 +40,11 @@ Các năng lực 2, 3, 4, 6 phụ thuộc vào lớp transport và xác thực c
 
 ### Những thứ dứt khoát không làm (non-goals)
 
-- **Không ứng dụng native.** Không Android app, không iOS app, không desktop app. Chỉ web. Đây là lý
-  do tồn tại của cả kiến trúc này — xem §2.
+- ~~Không ứng dụng native.~~ **Đã đổi một phần 2026-09-10** — xem §5d. Một app **React Native cho
+  Android** ra đời riêng cho việc tự động sao lưu ảnh nền (trình duyệt không làm được — không có
+  quyền đọc thư viện ảnh, không chạy nền). Vẫn giữ nguyên với mọi thứ khác: không app cho iOS
+  (Apple Developer Program trả phí không đáng cho một tính năng), không desktop app. Toàn bộ phần
+  còn lại của hub vẫn là web thuần — đây là ngoại lệ hẹp, không phải đảo ngược toàn bộ §2.
 - Không đa người dùng, không đăng ký, không mời người khác vào. Một người dùng, vài thiết bị.
 - **Không dùng OAuth, không Google/Apple/GitHub sign-in, không Auth0/Firebase/Clerk.** Xác thực tự
   làm, chạy hoàn toàn nội bộ — xem §6.
@@ -198,8 +202,13 @@ là thứ cho phép backend chuyển sang NAS mà không phải viết lại.
   /src/features/media     Xem phim cá nhân (năng lực 9, cô lập)
   /src/components/ui      shadcn/ui — mã chép vào repo, được phép sửa
   /src/shared             Component dùng chung, client API, kiểu dữ liệu
+/mobile                 App React Native (Expo) — CHỈ Android, chỉ sao lưu ảnh nền, xem §5d
 /docs                   Tài liệu nghiên cứu (manga-api-research.md, …)
 ```
+
+`/mobile` đứng ngoài `/backend` và `/frontend` có chủ đích: nó không phải phần của solution .NET
+cũng không phải phần của Vite frontend — một codebase thứ ba, build pipeline riêng (EAS), chỉ gọi
+tới `Hub.Api` qua HTTP giống mọi client khác. Xoá `/mobile` không ảnh hưởng gì tới backend/frontend.
 
 **Luật phụ thuộc:** `Hub.Core` không phụ thuộc vào gì cả (không Windows, không EF, không ASP.NET).
 `Hub.Api` phụ thuộc Core/Data. Không có chiều ngược lại.
@@ -856,6 +865,178 @@ Trong hàng đợi năng lực, đặt sau năng lực 3 và 7 — không mở �
 
 ---
 
+## 5d. Năng lực 3 — Sao lưu
+
+### Đã có, phản ánh code thật (không phải kế hoạch)
+
+Backend cho PC/laptop **đã tồn tại**: `Hub.Core/Backup` (`BackupService`, `BackupOptions`,
+`IBackupRunner`, `IBackupStore`) và `Hub.Api/Backup` (`RcloneRunner`, `BackupEndpoints`). Mô hình:
+
+- Mỗi công việc sao lưu (`BackupJobOptions`) là một cặp `Source` (thư mục trên máy) →
+  `Destination` (`remote:đường/dẫn` của rclone), cấu hình tĩnh trong `appsettings.json`.
+- Chạy theo yêu cầu qua `POST /api/backup/{jobName}/run`, một khoá mỗi job (`BackupJobLocks`) —
+  hai lần bấm không tạo hai lần chạy song song.
+- `copy` hay `sync` chọn qua cờ `DeleteExtra` — mặc định `copy` (an toàn hơn: xoá nhầm ở máy không
+  lan lên cloud).
+- Lịch sử lưu trong SQLite, chỉ giữ **số lượng và dung lượng**, không giữ tên file — đúng §6.5 mục
+  4 (không log thứ nhạy cảm).
+- `Encrypted` là cờ hiển thị: đích trỏ vào remote `crypt` của rclone thì đây là `true`, nhắc người
+  vận hành đừng vô tình khai dữ liệu nhạy cảm (ví dụ chính `hub.db`) vào một đích không mã hoá.
+
+Ba việc còn thiếu, ghi ở các mục dưới: **filter file theo job**, **sao lưu ảnh từ điện thoại**, và
+**lịch tự động** (chưa thiết kế, xem §12).
+
+### Filter file kiểu `.gitignore` — theo từng job
+
+**Quyết định: mỗi job một file filter riêng**, đặt cạnh thư mục nguồn — giống cách `.gitignore` nằm
+cạnh code nó áp dụng. Không dùng một file filter chung toàn hệ thống: mỗi thư mục cần loại trừ khác
+nhau (thư mục `node_modules` chỉ có nghĩa với job "code", không có nghĩa với job "ảnh").
+
+**Không tự viết parser filter.** rclone đã có sẵn cờ `--filter-from <file>` với cú pháp gần giống
+`.gitignore` (`+`/`-` cho include/exclude, `*` và `**` cho wildcard, dòng bắt đầu bằng `#` là
+comment). Viết lại là đúng thứ §2.3 cấm.
+
+Thêm trường vào `BackupJobOptions`:
+
+```csharp
+/// <summary>
+/// Đường dẫn file filter kiểu rclone (cú pháp gần .gitignore), truyền qua
+/// --filter-from. Để trống thì sao lưu toàn bộ Source, không lọc gì.
+/// </summary>
+public string? FilterFile { get; set; }
+```
+
+`RcloneRunner` thêm `--filter-from <FilterFile>` vào `args` khi trường này có giá trị. Không đọc
+hay parse nội dung file ở phía .NET — rclone tự đọc khi được gọi.
+
+Ví dụ minh hoạ (giá trị ví dụ, không phải đường dẫn thật — đúng quy tắc placeholder đã áp dụng ở
+§5c):
+
+```json
+{
+  "Backup": {
+    "Jobs": [
+      {
+        "Name": "tai-lieu",
+        "Source": "D:\\Documents",
+        "Destination": "remote:backup/tai-lieu",
+        "FilterFile": "D:\\Documents\\.backupignore"
+      }
+    ]
+  }
+}
+```
+
+Nội dung `.backupignore` mẫu (cú pháp thật của rclone):
+
+```
+# Loại trừ file tạm và thư mục build
+- *.tmp
+- node_modules/**
+- bin/**
+- obj/**
+# Còn lại thì lấy hết
++ **
+```
+
+### Nguồn ảnh di động — hai nền tảng, hai đường khác hẳn nhau
+
+Đây là phần **đảo ngược một phần non-goal "không ứng dụng native"** ở §1 — đọc kỹ lý do trước khi
+đề xuất mở rộng thêm.
+
+**Vì sao trình duyệt không làm được backup ảnh tự động.** Cả iOS lẫn Android đều không cho một web
+server bên ngoài (hub) chủ động đọc thư viện ảnh qua HTTP, kể cả khi cùng nằm trong tailnet —
+`PHPhotoLibrary` (iOS) và `MediaStore` (Android) chỉ mở cho code chạy **bên trong** một app đã được
+cấp quyền, không phải cho request mạng từ ngoài gọi vào. Đây là giới hạn hệ điều hành, không phải
+giới hạn có thể lách bằng cấu hình.
+
+**Android — app React Native, chạy nền thật.**
+
+- Build bằng Expo/EAS, cài trực tiếp file `.apk` — không cần tài khoản Google Play.
+- Xin quyền `READ_MEDIA_IMAGES` một lần, sau đó dùng **development build** (không phải Expo Go) để
+  chạy tác vụ nền qua WorkManager — tự phát hiện ảnh mới (so hash/thời gian chỉnh sửa) và upload
+  lên hub qua tailnet. Bắt buộc development build vì Expo Go không cấp quyền chạy nền tuỳ ý.
+- Gọi thẳng `POST /api/backup/photos/upload` của hub qua địa chỉ tailnet — không qua rclone, không
+  qua cloud trung gian. Ảnh từ điện thoại đi thẳng: điện thoại → hub → (tuỳ chọn) rclone lên cloud
+  theo đúng luồng đã có của PC.
+- Từ tháng 9/2026, Google bắt buộc nhà phát triển đăng ký danh tính (miễn phí, chỉ là thủ tục) để
+  người dùng cài APK bằng tap-to-install thông thường; `adb install` không cần bước này. Ghi vào
+  tài liệu vận hành khi tới lúc build.
+
+**iPhone — không build app riêng. Đã cân nhắc và từ chối, ghi lại lý do để không đề xuất lại.**
+
+Đã điều tra kỹ trước khi quyết:
+
+- **Expo Go đã cài sẵn không chạy nền được trên iOS.** Xác nhận từ tài liệu chính thức của Expo:
+  *"Background Fetch is not enabled in the iOS Expo Go app and requires you to use a development
+  build."* Expo Go chỉ dùng để chạy thử code lúc phát triển, không phải bản chạy thật.
+  Ngoài ra Expo Go đã bị **gỡ khỏi App Store từ SDK 55** (2026) — bản cài sẵn cũ có thể còn dùng
+  được cho việc thử code, nhưng không phải đường triển khai lâu dài.
+- **Development build cho iPhone vật lý bắt buộc Ad Hoc provisioning, cần $99/năm Apple Developer
+  Program** — không có ngoại lệ cho "chỉ dùng cá nhân", không có cách né bằng số lượng thiết bị ít.
+  Free provisioning 7-ngày tồn tại về nguyên tắc nhưng cần máy Mac để re-sign thủ công mỗi tuần —
+  vô nghĩa cho một tác vụ chạy nền tự động.
+- **Kết luận: chi phí không đáng cho một tính năng hẹp.** Quyết định của người dùng, ghi lại để
+  không lặp lại việc cân nhắc.
+
+Đường thay thế cho iPhone, cả hai đều **thủ công, không chạy nền**:
+
+1. **Web upload qua trình duyệt** — `<input type="file" multiple accept="image/*">` trên trang hub.
+   Trình duyệt tự mở trình chọn ảnh gốc của iOS, người dùng chọn ảnh, bấm upload. Không cần quyền
+   đặc biệt, dùng chung endpoint `/api/backup/photos/upload` với Android.
+2. **Mở Expo Go, chạy thủ công** — dùng được cho việc thử/dùng một lần, không phải backup tự động.
+
+Nếu sau này thấy bất tiện thật sự, quay lại đánh giá trả phí Apple Developer — nhưng đó là quyết
+định mới, không suy luận ngược từ mục này.
+
+### Endpoint upload ảnh — khác hẳn endpoint chạy job
+
+`/api/backup/{jobName}/run` chạy một job đã cấu hình sẵn (thư mục cố định trên máy chủ). Ảnh từ
+điện thoại **không** đi qua đường đó — ảnh đến từ file người dùng/app gửi lên qua HTTP, không phải
+một thư mục nguồn tĩnh. Cần endpoint riêng:
+
+```
+POST /api/backup/photos/upload
+```
+
+- Yêu cầu đăng nhập, giống mọi endpoint khác (§6.5).
+- Nhận multipart file, ghi vào một thư mục đích cấu hình sẵn trên máy chủ (ví dụ
+  `D:\Media\PhoneBackup\<tên-thiết-bị>\`), **sau đó** thư mục đó có thể là `Source` của một
+  `BackupJobOptions` thông thường để đẩy tiếp lên cloud qua rclone — tái dùng đúng luồng đã có,
+  không viết đường lên cloud thứ hai.
+- **Chống path traversal** trên tên file client gửi lên — đúng nguyên tắc đã áp dụng ở §5c cho
+  `LibraryPath`.
+- **Giới hạn kích thước request** (`Kestrel:Limits:MaxRequestBodySize` hoặc chặn theo từng ảnh) —
+  ảnh điện thoại hiện đại có thể vài chục MB, nhưng không giới hạn là mở đường cho request khổng lồ
+  làm nghẽn backend.
+- Trả về số ảnh nhận được + số ảnh trùng (đã có, bỏ qua theo hash) — không trả danh sách tên file
+  trong response nếu response đó có thể vào log truy cập chung.
+
+### Bảo mật — không có ngoại lệ mới
+
+Giống nguyên tắc đã áp dụng ở §5c:
+
+- Mọi endpoint sao lưu yêu cầu session đăng nhập; endpoint đổi trạng thái (`run`, `upload`) cần
+  antiforgery token (§6.5 mục 5) — `BackupEndpoints` đã làm đúng cho `run`, `upload` phải theo
+  cùng khuôn.
+- App Android gọi hub qua **địa chỉ tailnet**, không qua Cloudflare Tunnel — ảnh cá nhân là dữ liệu
+  nhạy cảm nhất trong toàn hệ thống, ưu tiên đường ngắn nhất và không qua bên thứ ba khi có thể
+  (đúng tinh thần §4a: tailnet vẫn là đường ưu tiên).
+- Thư mục `PhoneBackup` chống path traversal giống `LibraryPath` ở §5c — cùng một lớp kiểm tra,
+  không viết lại.
+
+### Thứ tự làm
+
+1. Filter file (`FilterFile` + `--filter-from`) — mở rộng nhỏ trên code PC đã có, làm trước.
+2. Endpoint `/api/backup/photos/upload` + trang web upload thủ công — chạy được cho cả Android lẫn
+   iPhone ngay, không cần app.
+3. App React Native cho Android (development build, WorkManager nền) — làm sau, vì nó là hạng mục
+   lớn nhất (codebase thứ ba, build pipeline riêng) và web upload đã che được nhu cầu tối thiểu.
+
+Không mở đồng thời — đúng §9.
+
+---
+
 ## 6. Xác thực nội bộ và bảo mật — không thương lượng
 
 Hệ thống này gom nội dung file, quyền truy cập từ xa vào PC, và quyền tắt-mở máy. Một phiên đăng
@@ -1150,6 +1331,11 @@ lý do.
 | 2026-09-10 | Chấp nhận yêu cầu tài khoản **SoundCloud Artist Pro trả phí** như ngoại lệ có điều kiện của §1 | Khác MangaDex/Internet Archive (miễn phí hoàn toàn) — đây là chi phí thuê bao thật của người dùng, không phải backend chung phải trả. Ghi rõ, không giấu |
 | 2026-09-10 | Bắt buộc ghi công + backlink SoundCloud ở **mọi nơi hiển thị track**, không chỉ lúc phát | Đúng nguyên văn điều khoản API — điều kiện giữ quyền dùng, không phải gợi ý thiết kế. Áp dụng cho danh sách tìm kiếm, hàng playlist, và trình phát |
 | 2026-09-10 | Range-proxy dùng chung nhận `Stream` thay vì `FileStream` | Để cùng một hàm phục vụ được cả đọc từ đĩa (Nguồn A/B) lẫn đọc từ `HttpResponseMessage` của SoundCloud (Nguồn C) — một cơ chế Range, bất kể byte đến từ đâu |
+| 2026-09-10 | Filter file sao lưu **theo từng job** (cạnh thư mục nguồn), dùng `rclone --filter-from` có sẵn | Mỗi thư mục cần loại trừ khác nhau; một file chung toàn hệ thống kém linh hoạt. Không tự viết parser — đúng §2.3 |
+| 2026-09-10 | **Đảo ngược một phần non-goal "không ứng dụng native"**: thêm app React Native cho **Android**, chỉ để sao lưu ảnh nền | Trình duyệt không có quyền đọc thư viện ảnh hay chạy nền trên di động — giới hạn hệ điều hành, không phải cấu hình. Ngoại lệ hẹp: chỉ tính năng này, chỉ Android; mọi thứ khác của hub vẫn là web |
+| 2026-09-10 | **Không build app cho iOS.** iPhone dùng web upload thủ công hoặc Expo Go thủ công (không chạy nền) | Điều tra xác nhận: Expo Go đã cài sẵn không chạy nền được trên iOS (tài liệu chính thức Expo — *"Background Fetch is not enabled in the iOS Expo Go app"*). Development build cho iPhone vật lý bắt buộc $99/năm Apple Developer Program, không có cách né cho "chỉ dùng cá nhân". Chi phí không đáng cho một tính năng hẹp — quyết định của người dùng sau khi nghe đủ dữ kiện |
+| 2026-09-10 | Ảnh điện thoại đi qua endpoint upload riêng (`/api/backup/photos/upload`), không qua `{jobName}/run` | `run` chạy job đã cấu hình sẵn với `Source` tĩnh; ảnh đến từ file client gửi lên, không phải thư mục cố định trên máy chủ. Sau khi nhận, thư mục đích có thể làm `Source` của một job thường — tái dùng luồng rclone đã có, không viết đường lên cloud thứ hai |
+| 2026-09-10 | App Android gọi hub qua **địa chỉ tailnet**, không qua Cloudflare Tunnel | Ảnh cá nhân là dữ liệu nhạy cảm nhất trong hệ thống; ưu tiên đường ngắn nhất, không qua bên thứ ba khi có thể — đúng tinh thần §4a |
 
 ---
 
@@ -1210,6 +1396,16 @@ Các câu đã chốt (thư viện UI, chạy lệnh shell) đã chuyển vào �
     backend restart, phải xin lại) hay lưu trong SQLite cùng bảng với thông tin xác thực rclone
     (bền hơn, nhưng thêm một bảng DB cho một giá trị sống ngắn hạn)? Nghiêng về bộ nhớ tiến trình vì
     token sống ngắn và việc xin lại lúc khởi động không tốn kém — nhưng chưa chốt.
+17. **Lịch sao lưu tự động cho năng lực 3 (§5d) — chạy theo cron hay theo khoảng cách giữa các
+    lần?** Hiện chỉ chạy theo yêu cầu (`POST /api/backup/{jobName}/run`), người dùng tự bấm. Cần
+    một `IHostedService`/`BackgroundService` định kỳ gọi `BackupService.RunJobAsync` — nhưng lịch
+    biểu đặt trong `appsettings.json` (mỗi job một lịch) hay một cấu hình chung? Ảnh hưởng tới
+    `BackupJobOptions` cần thêm trường gì.
+18. **App Android xác thực với hub bằng gì?** Trình duyệt dùng session cookie (§6.2), nhưng app
+    React Native không phải trình duyệt — không tự động gửi kèm cookie theo cách web app làm. Cần
+    một cơ chế khác: đăng nhập một lần trong app rồi lưu token dài hạn (ở đâu — Keychain/Keystore
+    của hệ điều hành?), hay app yêu cầu người dùng đăng nhập lại mỗi khi mở? Phải chốt trước khi
+    viết `POST /api/backup/photos/upload` — endpoint đó cần biết ai đang gọi.
 
 
 

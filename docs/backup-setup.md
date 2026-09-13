@@ -51,21 +51,94 @@ hơn, không phụ thuộc PATH.
 
 ---
 
+## Tạo client ID riêng của Google — bắt buộc
+
+⚠️ **Không để trống `client_id` được nữa.** rclone khai tử client_id dùng chung:
+
+> This shared client_id **is being retired and will stop working during 2026**.
+> To avoid interruption you must create and use your own client_id, so creating
+> one is now **required rather than merely recommended**.
+> — [tài liệu rclone](https://rclone.org/drive/#making-your-own-client-id)
+
+Bỏ trống thì `rclone config` trả lời `This value is required and it has no
+default` và không đi tiếp được. Kể cả nếu lách qua được, backup sẽ chết vào một
+ngày nào đó trong năm nay mà không báo trước — đúng kiểu hỏng tệ nhất với sao lưu.
+
+Vào [Google API Console](https://console.developers.google.com/), làm một lần:
+
+1. **Tạo/chọn project.**
+2. **Bật Drive API** — *Library* → tìm "Google Drive API" → *Enable*.
+3. **Cấu hình consent screen** — *OAuth consent screen* (hoặc *Audience* ở giao
+   diện mới) → User type **External** → điền App name, User support email,
+   Developer contact → Save.
+4. **Thêm scope** — *Data Access* → *Add or remove scopes* → ô *Manually add
+   scopes*, dán:
+   ```
+   https://www.googleapis.com/auth/docs,https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/drive.metadata.readonly
+   ```
+   → *Add to table* → *Update* → **Save**.
+5. **Tạo OAuth client** — *Credentials* → *+ Create credentials* → *OAuth client
+   ID* → Application type **Desktop app** → *Create*. Chép lại **Client ID** và
+   **Client secret**.
+6. **PUBLISH APP** — quay lại *OAuth consent screen* / *Audience*, bấm nút này.
+
+### Ba lỗi đã gặp thật ở bước này
+
+**`Error 400: redirect_uri_mismatch`** — chọn nhầm Application type. rclone xác
+thực qua web server tạm ở `http://127.0.0.1:53682/auth`, và **chỉ loại Desktop
+app** mới được Google cho phép redirect về localhost. Nếu màn hình tạo client bắt
+nhập "Authorized redirect URIs" thì bạn đang chọn sai loại. Xoá client đó, tạo
+lại đúng Desktop app.
+
+**`Error 403: access_denied`** — app ở chế độ Testing và email của bạn chưa nằm
+trong danh sách test user. Hai cách:
+
+| | Thêm test user | **PUBLISH APP** |
+|---|---|---|
+| Token | **Hết hạn sau 7 ngày** | Không hết hạn |
+| Google phê duyệt | Không cần | Không cần (dùng cá nhân, dưới 100 người) |
+| Phiền toái | Xác thực lại mỗi tuần | Bấm qua cảnh báo một lần |
+
+Với sao lưu thì **publish app**. Backup cứ 7 ngày lại chết âm thầm là thứ bạn chỉ
+phát hiện vào đúng ngày cần khôi phục.
+
+**"OAuth 2.0 Client IDs — No OAuth clients to display"** — Google không cho tạo
+client cho tới khi consent screen (bước 3) xong. Làm bước 3 trước.
+
+---
+
 ## Nối Google Drive
 
 ```powershell
 rclone config
 ```
 
-Chọn `n` (new remote), đặt tên `gdrive`, chọn `drive`, để trống client_id và
-client_secret (dùng mặc định của rclone), chọn scope `1` (toàn quyền), rồi làm
-theo bước xác thực trên trình duyệt.
+| Prompt | Nhập |
+|---|---|
+| `n/s/q>` | `n` |
+| `name>` | `hub` |
+| `Storage>` | `24` (Google Drive) |
+| `Continue using the shared client_id anyway?` | `n` |
+| `client_id>` | Client ID vừa tạo |
+| `client_secret>` | Client secret vừa tạo |
+| `scope>` | `1` (drive — toàn quyền) |
+| `service_account_file>` | Enter (bỏ trống) |
+| `Edit advanced config?` | `n` |
+| `Use web browser to automatically authenticate?` | `y` |
+| `Configure this as a Shared Drive (Team Drive)?` | `n` |
+| `Keep this remote?` | `y` |
 
-Kiểm tra:
+Trình duyệt mở ra. Gặp màn hình "Google chưa xác minh ứng dụng này" thì bấm
+**Nâng cao** → **Chuyển đến … (không an toàn)** → cho phép. Đây là hành vi bình
+thường của app chưa qua xác minh, không phải lỗi.
+
+Kiểm tra bằng một lần gọi thật tới Drive:
 
 ```powershell
-rclone lsd gdrive:
+rclone lsd hub:
 ```
+
+Phải liệt kê được thư mục trong Drive của bạn.
 
 ⚠️ **Chạy `rclone config` dưới tài khoản nào thì file cấu hình nằm trong hồ sơ
 tài khoản đó.** Service chạy dưới LocalSystem sẽ không thấy — xem mục "Service
@@ -82,20 +155,47 @@ Lý do: `hub.db` chứa **hash mật khẩu và phiên đăng nhập**. Hash PBK
 plaintext, nhưng nó là thứ để tấn công offline — và Drive là tài khoản Google,
 không phải máy của bạn.
 
-Tạo remote `crypt` bọc lên `gdrive`:
+Tạo remote `crypt` bọc lên `hub`:
 
 ```powershell
 rclone config
-# n → tên: gdrive-crypt → storage: crypt
-# remote: gdrive:hub-data-encrypted
-# filename_encryption: standard
-# directory_name_encryption: true
-# Đặt mật khẩu (KHÔNG dùng lại mật khẩu hub)
 ```
 
-⚠️ **Mất mật khẩu crypt là mất dữ liệu.** Không có cách khôi phục. Lưu nó ở nơi
-khác với máy này — nếu chỉ lưu trên chính máy đang sao lưu thì bản sao lưu vô
-dụng đúng lúc cần nhất.
+| Prompt | Nhập |
+|---|---|
+| `n/s/q>` | `n` |
+| `name>` | `hub-crypt` |
+| `Storage>` | `16` (crypt) |
+| `remote>` | `hub:hub-data-encrypted` |
+| `filename_encryption>` | `1` (standard) |
+| `directory_name_encryption>` | `1` (true) |
+| `Password` | `y` → tự đặt (KHÔNG dùng lại mật khẩu hub) |
+| `Password for salt` | `g` → `128` → `y` |
+| `Edit advanced config?` | `n` |
+| `Keep this remote?` | `y` |
+
+⚠️ **Mất mật khẩu crypt hoặc chuỗi salt là mất dữ liệu.** Không có cách khôi
+phục. Lưu chúng ở nơi khác với máy này — lưu chỉ trên chính máy đang sao lưu thì
+bản sao lưu vô dụng đúng lúc cần nhất.
+
+### Kiểm chứng mã hoá có thật không
+
+Đừng tin, hãy nhìn. So sánh cùng dữ liệu qua hai remote:
+
+```powershell
+rclone ls hub-crypt:hub-data        # qua crypt: thấy tên file thật
+rclone lsf hub:hub-data-encrypted -R --files-only   # thô: đúng thứ Google thấy
+```
+
+Lệnh thứ hai phải ra tên vô nghĩa, ví dụ:
+
+```
+nmqspq21ib4aciggdneli30ujc/mo0q53mb4hiok6d5vsv68d4pic
+```
+
+Đọc nội dung thô thì thấy magic `RCLONE\0\0` rồi toàn byte nhiễu. Nếu lệnh thứ
+hai vẫn hiện `hub.db` thì **mã hoá chưa có tác dụng** — kiểm tra lại
+`Destination` của job có trỏ vào remote crypt không.
 
 ---
 
@@ -115,13 +215,13 @@ cấu hình hiện tại — xem [services.md](services.md)):
       {
         "Name": "tai-lieu",
         "Source": "D:\\Tai lieu",
-        "Destination": "gdrive:backup/tai-lieu",
+        "Destination": "hub:backup/tai-lieu",
         "Encrypted": false
       },
       {
         "Name": "hub-data",
         "Source": "D:\\App\\HubData",
-        "Destination": "gdrive-crypt:",
+        "Destination": "hub-crypt:hub-data",
         "Encrypted": true
       }
     ]
@@ -219,12 +319,67 @@ Hai cách:
 - Chép file cấu hình sang đó, **hoặc**
 - Khai `Backup:ConfigPath` trỏ vào file trong hồ sơ của bạn
 
+Cách thứ hai đơn giản hơn nhưng file phải cho `SYSTEM` đọc được. Cách thứ nhất,
+làm trong PowerShell **Run as Administrator**:
+
+```powershell
+$src = Join-Path $env:APPDATA 'rcloneclone.conf'
+$dstDir = 'C:\Windows\System32\config\systemprofile\AppData\Roamingclone'
+New-Item -ItemType Directory $dstDir -Force | Out-Null
+Copy-Item $src (Join-Path $dstDir 'rclone.conf') -Force
+```
+
+⚠️ **Siết quyền đọc sau khi chép.** File này chứa token OAuth của Google Drive và
+mật khẩu crypt (dạng obscure) — bất cứ ai đọc được nó đều mở được bản sao lưu.
+Bỏ thừa kế và chỉ giữ `SYSTEM`, `Administrators`, chủ sở hữu.
+
+**Kiểm chứng SYSTEM thật sự đọc được**, đừng chỉ tin là đã chép xong. Tạo một
+scheduled task chạy dưới `SYSTEM` gọi `rclone listremotes` và xem kết quả — nếu
+nó liệt kê đủ cả remote thường lẫn remote crypt thì service sẽ chạy được.
+
+⚠️ Sửa cấu hình rclone sau này (thêm remote, đổi mật khẩu) thì **phải chép lại** —
+bản trong hồ sơ hệ thống không tự cập nhật.
+
 Cách thứ hai đơn giản hơn, nhưng file phải cho `SYSTEM` đọc được.
 
 ### Job kẹt ở "đang chạy"
 
 Hub tự dọn lúc khởi động — bản ghi treo được đánh dấu `Cancelled`. Nếu vẫn kẹt
 khi hub đang chạy thì đó là rclone thật sự chưa xong; chờ tới `TimeoutMinutes`.
+
+### `/api/backup` trả 404 dù cấu hình đúng
+
+Không phải lỗi cấu hình — **service đang chạy binary cũ hơn tính năng**. Endpoint
+backup chỉ có trong bản publish từ commit thêm năng lực 3 trở đi; bản cũ không hề
+chứa route đó.
+
+Đã gặp thật: service chạy binary build ngày 3, còn code backup commit ngày 10.
+
+Kiểm tra trong một phút:
+
+```powershell
+# Binary đang chạy build lúc nào
+Get-Item backend\Hub.Apiin\Release
+et10.0\publish\Hub.Api.dll | Select-Object LastWriteTime
+
+# DLL đã publish có chứa endpoint không (0 = chưa có)
+Select-String -Path backend\Hub.Apiin\Release
+et10.0\publish\Hub.Api.dll -Pattern 'MapBackupEndpoints' -AllMatches |
+    Measure-Object | Select-Object Count
+```
+
+Sửa bằng cách publish lại rồi tráo vào — xem "Cập nhật hub khi service đang chạy"
+trong [services.md](services.md):
+
+```powershell
+dotnet publish backend/Hub.Api/Hub.Api.csproj -c Release `
+    -o backend/Hub.Api/bin/Release/net10.0/publish-new
+
+.\scripts\hub-services.ps1 restart -Only hub    # Administrator
+```
+
+Dấu hiệu phân biệt với lỗi xác thực: `/api/devices` vẫn trả **200** trong khi
+`/api/backup` trả **404**. Phiên đăng nhập không có vấn đề gì.
 
 ### `appsettings.Production.json` sai cú pháp
 
