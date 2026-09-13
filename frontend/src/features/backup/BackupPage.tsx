@@ -1,4 +1,5 @@
-import { AlertCircle, CircleCheck, CircleX, Loader2, Lock, ServerOff } from 'lucide-react'
+import { AlertCircle, CircleCheck, CircleX, Loader2, Lock, Plus, ServerOff, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -9,11 +10,14 @@ import {
   toNumber,
   useBackupHistory,
   useBackupStatus,
+  useDeleteBackupJob,
   useRunBackupJob,
   type BackupJobDto,
   type BackupRunDto,
 } from '@/shared/api/backup'
 import { PageContainer } from '@/shared/components/PageContainer'
+
+import { JobDialog } from './JobDialog'
 import {
   describeRelativeTime,
   formatBytes,
@@ -36,13 +40,23 @@ import {
  */
 export function BackupPage() {
   const status = useBackupStatus()
+  const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
     <PageContainer className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight lg:text-2xl">Sao lưu</h1>
-        <Verdict data={status.data} isPending={status.isPending} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight lg:text-2xl">Sao lưu</h1>
+          <Verdict data={status.data} isPending={status.isPending} />
+        </div>
+
+        <Button size="sm" onClick={() => setDialogOpen(true)}>
+          <Plus className="size-4" aria-hidden="true" />
+          Thêm thư mục
+        </Button>
       </div>
+
+      <JobDialog open={dialogOpen} onOpenChange={setDialogOpen} />
 
       {status.isPending ? <JobsPending /> : null}
 
@@ -182,6 +196,7 @@ function VerdictLine({ tone, children }: { tone: 'good' | 'bad' | 'running'; chi
 
 function JobCard({ job }: { job: BackupJobDto }) {
   const runJob = useRunBackupJob()
+  const deleteJob = useDeleteBackupJob()
   const run = job.latestRun
 
   return (
@@ -213,14 +228,32 @@ function JobCard({ job }: { job: BackupJobDto }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-muted-foreground">{describeRun(run)}</span>
 
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={job.isRunning || runJob.isPending}
-            onClick={() => runJob.mutate(job.name)}
-          >
-            {job.isRunning ? 'Đang chạy' : 'Chạy ngay'}
-          </Button>
+          <span className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={job.isRunning || runJob.isPending}
+              onClick={() => runJob.mutate(job.name)}
+            >
+              {job.isRunning ? 'Đang chạy' : 'Chạy ngay'}
+            </Button>
+
+            {/* Chỉ xoá khỏi danh sách công việc — KHÔNG đụng tới tệp đã sao lưu
+                trên cloud, cũng không xoá .backupignore trong thư mục người dùng. */}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={job.isRunning || deleteJob.isPending}
+              onClick={() => {
+                if (confirm(`Xoá công việc "${job.name}"? Tệp đã sao lưu trên cloud vẫn còn.`)) {
+                  deleteJob.mutate(job.name)
+                }
+              }}
+              aria-label={`Xoá ${job.name}`}
+            >
+              <Trash2 className="size-3.5" aria-hidden="true" />
+            </Button>
+          </span>
         </div>
 
         {/* ErrorMessage cố tình là câu chung, không đường dẫn không stack trace
@@ -238,6 +271,9 @@ function JobCard({ job }: { job: BackupJobDto }) {
         ) : null}
 
         {runJob.isError ? <p className="text-destructive">{runJob.error.message}</p> : null}
+        {deleteJob.isError ? (
+          <p className="text-destructive">{deleteJob.error.message}</p>
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -344,8 +380,9 @@ function NoJobs({ rcloneVersion }: { rcloneVersion: string | null }) {
       <CardContent className="space-y-2 py-6 text-sm">
         <p className="font-medium">Chưa có công việc sao lưu nào.</p>
         <p className="text-muted-foreground">
-          Mỗi công việc là một cặp thư mục trên máy này và đích trên cloud. Khai ở mục{' '}
-          <code>Backup:Jobs</code> trong cấu hình hub, rồi tải lại trang.
+          Mỗi công việc là một cặp thư mục trên máy này và đích trên cloud. Bấm{' '}
+          <span className="font-medium text-foreground">Thêm thư mục</span> để tạo, hoặc khai ở mục{' '}
+          <code>Backup:Jobs</code> trong cấu hình hub.
         </p>
         {rcloneVersion ? <p className="text-success">{rcloneVersion} · sẵn sàng</p> : null}
       </CardContent>

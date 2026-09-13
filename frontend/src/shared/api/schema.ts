@@ -431,6 +431,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/backup/browse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Duyệt thư mục trên máy chạy hub để chọn nguồn sao lưu */
+        get: operations["BrowseBackupDirectories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/backup/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Mẫu nội dung file lọc */
+        get: operations["GetBackupFilterPresets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/backup/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Tạo hoặc sửa một công việc sao lưu */
+        post: operations["SaveBackupJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/backup/jobs/{jobName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Xoá một công việc sao lưu do người dùng tạo */
+        delete: operations["DeleteBackupJob"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/backup/jobs/{jobName}/filter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Nội dung file lọc của một công việc */
+        get: operations["GetBackupJobFilter"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -494,6 +579,25 @@ export interface components {
             /** Format: int32 */
             onlineCount: number | string;
         };
+        DirectoryEntryDto: {
+            name: string;
+            path: string;
+        };
+        DirectoryListingDto: {
+            path: null | string;
+            parent: null | string;
+            entries: components["schemas"]["DirectoryEntryDto"][];
+        };
+        FilterContentDto: {
+            source: string;
+            filterFile: null | string;
+            content: string;
+        };
+        FilterPresetDto: {
+            name: string;
+            description: string;
+            content: string;
+        };
         HealthResponse: {
             status: string;
             /** Format: date-time */
@@ -509,6 +613,18 @@ export interface components {
         RevokeAllResponse: {
             /** Format: int32 */
             revokedCount: number | string;
+        };
+        SaveJobRequest: {
+            name: string;
+            source: string;
+            destination: string;
+            encrypted: boolean;
+            deleteExtra: boolean;
+            filterContent: null | string;
+        };
+        SaveJobResultDto: {
+            name: string;
+            filterFile: null | string;
         };
         SessionDto: {
             /** Format: uuid */
@@ -705,6 +821,128 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["BackupRunDto"];
                 };
+            };
+        };
+    };
+    BrowseBackupDirectories: {
+        parameters: {
+            query?: {
+                path?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryListingDto"];
+                };
+            };
+        };
+    };
+    GetBackupFilterPresets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterPresetDto"][];
+                };
+            };
+        };
+    };
+    SaveBackupJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveJobRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaveJobResultDto"];
+                };
+            };
+        };
+    };
+    DeleteBackupJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GetBackupJobFilter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterContentDto"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -1,0 +1,131 @@
+import { useState } from 'react'
+import { ChevronRight, CornerLeftUp, Folder, HardDrive, Loader2 } from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useBrowseDirectories } from '@/shared/api/backup'
+
+/**
+ * Chọn thư mục trên máy chạy hub.
+ *
+ * Backend chỉ trả thư mục nằm trong `Backup:BrowseRoots` — người dùng không
+ * duyệt được cả ổ đĩa. Giao diện không nói ra giới hạn đó bằng lời: danh sách
+ * gốc ngắn đã tự nói, và giải thích thêm chỉ làm rối.
+ *
+ * Không có ô gõ đường dẫn tự do: gõ tay dễ sai, và backend sẽ từ chối đường dẫn
+ * ngoài phạm vi — để người dùng gõ rồi báo lỗi là bắt họ đoán.
+ */
+export function FolderPicker({
+  value,
+  onChange,
+}: {
+  value: string | null
+  onChange: (path: string) => void
+}) {
+  // Thư mục đang MỞ để xem, khác với thư mục đã CHỌN. Mở một thư mục không có
+  // nghĩa là chọn nó — người dùng thường đi sâu vài cấp rồi mới quyết định.
+  const [openPath, setOpenPath] = useState<string | null>(value)
+
+  const listing = useBrowseDirectories(openPath)
+
+  if (listing.isPending) {
+    return (
+      <div className="space-y-2 rounded-md border p-3" aria-busy="true">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-4 w-36" />
+      </div>
+    )
+  }
+
+  if (listing.isError) {
+    return (
+      <div className="rounded-md border border-destructive/50 p-3 text-sm text-destructive">
+        {listing.error.message}
+      </div>
+    )
+  }
+
+  const data = listing.data
+  const atRoot = data.path === null
+
+  return (
+    <div className="rounded-md border">
+      {/* Thanh đường dẫn: luôn thấy đang đứng ở đâu, kể cả khi đi sâu nhiều cấp. */}
+      <div className="flex items-center gap-2 border-b px-3 py-2 text-xs">
+        {data.parent !== null || !atRoot ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 gap-1 px-1.5 text-xs"
+            onClick={() => setOpenPath(data.parent)}
+          >
+            <CornerLeftUp className="size-3" aria-hidden="true" />
+            Lên trên
+          </Button>
+        ) : null}
+
+        <span className="truncate text-muted-foreground" title={data.path ?? undefined}>
+          {data.path ?? 'Chọn ổ đĩa hoặc thư mục'}
+        </span>
+      </div>
+
+      <ul className="max-h-56 overflow-y-auto py-1">
+        {data.entries.length === 0 ? (
+          <li className="px-3 py-4 text-center text-xs text-muted-foreground">
+            Không có thư mục con.
+          </li>
+        ) : null}
+
+        {data.entries.map((entry) => {
+          const selected = value === entry.path
+
+          return (
+            <li key={entry.path}>
+              <div
+                className={
+                  'flex items-center gap-1 px-1.5 ' +
+                  (selected ? 'bg-accent/60' : 'hover:bg-accent/40')
+                }
+              >
+                {/* Hai hành động tách riêng: bấm tên để CHỌN, bấm mũi tên để MỞ.
+                    Gộp làm một thì không chọn được thư mục có thư mục con. */}
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left text-sm"
+                  onClick={() => onChange(entry.path)}
+                >
+                  {atRoot ? (
+                    <HardDrive className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  ) : (
+                    <Folder className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  )}
+                  <span className="truncate">{entry.name}</span>
+                </button>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0"
+                  onClick={() => setOpenPath(entry.path)}
+                  aria-label={`Mở ${entry.name}`}
+                >
+                  <ChevronRight className="size-3.5" aria-hidden="true" />
+                </Button>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+
+      {listing.isFetching ? (
+        <div className="flex items-center gap-1.5 border-t px-3 py-1.5 text-xs text-muted-foreground">
+          <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+          Đang đọc…
+        </div>
+      ) : null}
+    </div>
+  )
+}
