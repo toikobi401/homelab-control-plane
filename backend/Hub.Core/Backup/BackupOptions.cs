@@ -34,16 +34,20 @@ public sealed class BackupOptions
     public List<BackupJobOptions> Jobs { get; set; } = [];
 
     /// <summary>
-    /// Các thư mục gốc được phép duyệt khi chọn nguồn sao lưu từ giao diện.
+    /// Các thư mục KHÔNG được duyệt hay chọn làm nguồn sao lưu.
     ///
-    /// Để trống thì rơi về mọi ổ đĩa cố định. Khai tường minh hẹp hơn và an
-    /// toàn hơn: hệ thống đã mở ra Internet (§4a), nên endpoint duyệt thư mục
-    /// là bề mặt tấn công thật — ai chiếm được phiên đăng nhập đều đọc được
-    /// cấu trúc ổ đĩa trong phạm vi này.
+    /// Đổi từ danh sách cho phép sang danh sách chặn (2026-09-13): người dùng
+    /// cần chọn thư mục bất kỳ, nên duyệt được mọi ổ đĩa cố định. Chỉ chặn vài
+    /// chỗ vừa không ai sao lưu, vừa lộ nhiều nhất nếu phiên đăng nhập bị chiếm.
     ///
-    /// Xem <see cref="DirectoryBrowser"/> để biết cách áp.
+    /// Để trống thì dùng mặc định của <see cref="DirectoryBrowser"/>: thư mục
+    /// Windows, Program Files, và thư mục dữ liệu của hub (chứa
+    /// <c>hub.db</c> và <c>appsettings.Production.json</c> với token Tailscale).
+    ///
+    /// Đây là nới lỏng có ý thức, không phải sơ suất — hệ thống đã mở ra
+    /// Internet (§4a) nên endpoint duyệt thư mục là bề mặt tấn công thật.
     /// </summary>
-    public List<string> BrowseRoots { get; set; } = [];
+    public List<string> BlockedPaths { get; set; } = [];
 
     /// <summary>
     /// Số bản sao lưu gần nhất giữ trong lịch sử. Cũ hơn thì xoá khỏi DB —

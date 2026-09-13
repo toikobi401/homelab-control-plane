@@ -5,61 +5,81 @@ namespace Hub.Core.Backup;
 /// <summary>
 /// Duyệt thư mục trên máy chạy hub, để giao diện chọn thư mục cần sao lưu.
 ///
-/// Đây là **bề mặt tấn công mới**: hệ thống đã mở ra Internet (§4a), nên một
-/// endpoint liệt kê thư mục nghĩa là ai chiếm được phiên đăng nhập đều đọc được
-/// cấu trúc ổ đĩa. Hai lớp phòng thủ:
+/// **Đổi từ danh sách cho phép sang danh sách chặn (2026-09-13).** Bản đầu chỉ
+/// cho duyệt trong một danh sách thư mục đã khai; người dùng cần chọn bất kỳ nên
+/// giờ duyệt được mọi ổ đĩa cố định, chỉ chặn vài chỗ nhạy cảm.
 ///
-/// 1. **Giới hạn gốc** (<see cref="BackupOptions.BrowseRoots"/>) — chỉ đi được
-///    trong các thư mục đã khai. Khác §5c: ở đó có một `LibraryPath` duy nhất,
-///    ở đây mục đích là duyệt tự do nên phải có danh sách gốc rõ ràng.
-/// 2. **Chống path traversal** — chuẩn hoá bằng <c>Path.GetFullPath</c> rồi
-///    kiểm tra nằm trong gốc, đúng cách §5c quy định. Chuỗi
-///    <c>../../../Windows/System32</c> không đi xa hơn bước này.
+/// Đây là **nới lỏng có ý thức**, không phải sơ suất. Hệ thống đã mở ra Internet
+/// (§4a) và hub chạy dưới LocalSystem, nên ai chiếm được phiên đăng nhập sẽ đọc
+/// được cấu trúc ổ đĩa. Cái giữ lại:
 ///
-/// Không đọc nội dung file, chỉ liệt kê tên thư mục — thứ ít nhất cần để chọn
-/// thư mục sao lưu.
+/// 1. **Chặn thư mục nhạy cảm** — Windows, Program Files, và thư mục dữ liệu
+///    của hub (chứa <c>hub.db</c> với hash mật khẩu, và
+///    <c>appsettings.Production.json</c> với token Tailscale). Đây đều là chỗ
+///    không ai sao lưu mà lại lộ nhiều nhất.
+/// 2. **Chuẩn hoá đường dẫn trước khi kiểm tra** — <c>Path.GetFullPath</c> giải
+///    hết <c>..</c>, nên không vòng vào thư mục bị chặn bằng
+///    <c>D:\x\..\..\Windows</c>.
+///
+/// Không đọc nội dung file, chỉ liệt kê tên thư mục.
 /// </summary>
-public sealed class DirectoryBrowser(BackupOptions options)
+public sealed class DirectoryBrowser(BackupOptions options, string dataDirectory)
 {
     /// <summary>Số mục tối đa trả về một lần, chặn thư mục khổng lồ làm nghẽn.</summary>
     private const int MaxEntries = 500;
 
-    /// <summary>
-    /// Các gốc được phép duyệt, đã chuẩn hoá. Không khai gì thì rơi về mọi ổ
-    /// đĩa cố định — tiện lúc bắt đầu, nhưng khai tường minh vẫn hẹp hơn.
-    /// </summary>
-    public IReadOnlyList<string> GetRoots()
-    {
-        if (options.BrowseRoots.Count > 0)
-        {
-            return [.. options.BrowseRoots
-                .Where(root => !string.IsNullOrWhiteSpace(root))
-                .Select(NormalizeOrNull)
-                .OfType<string>()
-                .Where(Directory.Exists)];
-        }
-
-        return [.. DriveInfo.GetDrives()
+    /// <summary>Mọi ổ đĩa cố định — điểm bắt đầu khi chưa chọn gì.</summary>
+    public IReadOnlyList<string> GetRoots() =>
+        [.. DriveInfo.GetDrives()
             .Where(drive => drive.DriveType == DriveType.Fixed && drive.IsReady)
             .Select(drive => drive.RootDirectory.FullName)];
+
+    /// <summary>
+    /// Các thư mục bị chặn, đã chuẩn hoá.
+    ///
+    /// Khai <c>BlockedPaths</c> thì thay hẳn mặc định — người vận hành tự chịu
+    /// trách nhiệm cho danh sách của mình, không gộp ngầm với mặc định rồi để
+    /// họ ngạc nhiên vì một thư mục vẫn bị chặn.
+    /// </summary>
+    private IReadOnlyList<string> GetBlockedPaths()
+    {
+        if (options.BlockedPaths.Count > 0)
+        {
+            return [.. options.BlockedPaths
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(NormalizeOrNull)
+                .OfType<string>()];
+        }
+
+        var defaults = new List<string>();
+
+        void AddFolder(Environment.SpecialFolder folder)
+        {
+            var path = Environment.GetFolderPath(folder);
+            if (!string.IsNullOrWhiteSpace(path)) { defaults.Add(path); }
+        }
+
+        AddFolder(Environment.SpecialFolder.Windows);
+        AddFolder(Environment.SpecialFolder.ProgramFiles);
+        AddFolder(Environment.SpecialFolder.ProgramFilesX86);
+
+        // Thư mục dữ liệu của hub: hub.db chứa hash mật khẩu và phiên đăng nhập,
+        // appsettings.Production.json chứa token Tailscale. Đường dẫn này đến từ
+        // HUB_DATA_DIR lúc chạy nên phải truyền vào, không hardcode được.
+        if (!string.IsNullOrWhiteSpace(dataDirectory)) { defaults.Add(dataDirectory); }
+
+        return [.. defaults.Select(NormalizeOrNull).OfType<string>()];
     }
 
     /// <summary>
     /// Liệt kê thư mục con của <paramref name="path"/>. Để trống thì trả danh
-    /// sách gốc.
+    /// sách ổ đĩa.
     /// </summary>
     public Result<DirectoryListing> List(string? path)
     {
-        var roots = GetRoots();
-
-        if (roots.Count == 0)
-        {
-            return Result.Failure<DirectoryListing>(ResultError.Validation(
-                "Chưa khai thư mục nào được phép duyệt (Backup:BrowseRoots)."));
-        }
-
         if (string.IsNullOrWhiteSpace(path))
         {
+            var roots = GetRoots();
             return Result.Success(new DirectoryListing(
                 Path: null,
                 Parent: null,
@@ -73,12 +93,10 @@ public sealed class DirectoryBrowser(BackupOptions options)
                 "Đường dẫn không hợp lệ."));
         }
 
-        if (!IsInsideAnyRoot(full, roots))
+        if (IsBlocked(full))
         {
-            // Không nói rõ "nằm ngoài gốc nào" — đó là thông tin về cấu trúc máy
-            // mà người gọi chưa được phép biết.
             return Result.Failure<DirectoryListing>(ResultError.Validation(
-                "Thư mục này không nằm trong phạm vi được phép duyệt."));
+                "Thư mục này bị chặn vì chứa dữ liệu hệ thống hoặc dữ liệu của hub."));
         }
 
         if (!Directory.Exists(full))
@@ -91,6 +109,7 @@ public sealed class DirectoryBrowser(BackupOptions options)
         try
         {
             entries = [.. Directory.EnumerateDirectories(full)
+                .Where(child => !IsBlocked(child))
                 .Take(MaxEntries)
                 .Select(child => new DirectoryEntry(
                     Name: Path.GetFileName(child),
@@ -109,22 +128,18 @@ public sealed class DirectoryBrowser(BackupOptions options)
                 "Không đọc được thư mục này."));
         }
 
-        // Chỉ cho lên cha khi cha vẫn nằm trong gốc — không để leo ra ngoài
-        // bằng cách bấm "lên trên" liên tục.
+        // Cha là null khi đang ở gốc ổ đĩa — lúc đó "lên trên" quay về danh sách
+        // ổ đĩa, không phải một thư mục nào.
         var parent = Path.GetDirectoryName(full);
-        if (parent is not null && !IsInsideAnyRoot(parent, roots))
-        {
-            parent = null;
-        }
 
         return Result.Success(new DirectoryListing(full, parent, entries));
     }
 
     /// <summary>
-    /// Đường dẫn này có được phép dùng làm nguồn sao lưu không.
+    /// Đường dẫn này có dùng làm nguồn sao lưu được không.
     ///
-    /// Gọi trước khi lưu job: người dùng có thể gửi thẳng đường dẫn bất kỳ lên
-    /// API mà không qua bước duyệt.
+    /// Gọi trước khi lưu job: người dùng gõ thẳng đường dẫn vào ô nhập, hoặc gửi
+    /// lên API mà không qua bước duyệt.
     /// </summary>
     public Result<string> ValidateSource(string path)
     {
@@ -134,10 +149,10 @@ public sealed class DirectoryBrowser(BackupOptions options)
             return Result.Failure<string>(ResultError.Validation("Đường dẫn không hợp lệ."));
         }
 
-        if (!IsInsideAnyRoot(full, GetRoots()))
+        if (IsBlocked(full))
         {
             return Result.Failure<string>(ResultError.Validation(
-                "Thư mục nguồn không nằm trong phạm vi được phép."));
+                "Thư mục này bị chặn vì chứa dữ liệu hệ thống hoặc dữ liệu của hub."));
         }
 
         if (!Directory.Exists(full))
@@ -152,7 +167,8 @@ public sealed class DirectoryBrowser(BackupOptions options)
     {
         try
         {
-            // GetFullPath giải hết ".." và "." — đây là bước chống path traversal.
+            // GetFullPath giải hết ".." và "." — nhờ đó không vòng vào thư mục
+            // bị chặn bằng "D:\x\..\..\Windows".
             var full = Path.GetFullPath(path.Trim());
             return full.Length > 1 ? full.TrimEnd(Path.DirectorySeparatorChar) : full;
         }
@@ -162,26 +178,36 @@ public sealed class DirectoryBrowser(BackupOptions options)
         }
     }
 
-    private static bool IsInsideAnyRoot(string fullPath, IReadOnlyList<string> roots)
+    /// <summary>
+    /// Đường dẫn có nằm trong (hoặc chính là) một thư mục bị chặn không.
+    ///
+    /// Chặn cả thư mục CHA của vùng bị chặn thì quá tay — chặn
+    /// <c>D:\App\HubData</c> không có nghĩa là cấm luôn <c>D:\App</c>, vì người
+    /// dùng có thể muốn sao lưu phần còn lại của <c>D:\App</c>.
+    /// </summary>
+    private bool IsBlocked(string fullPath)
     {
+        var normalized = NormalizeOrNull(fullPath);
+        if (normalized is null) { return true; }
+
         var comparison = OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
 
-        foreach (var root in roots)
+        foreach (var blocked in GetBlockedPaths())
         {
-            if (fullPath.Equals(root, comparison))
+            if (normalized.Equals(blocked, comparison))
             {
                 return true;
             }
 
-            // Phải so kèm dấu phân cách: "D:\App" và "D:\AppData" khác nhau,
-            // nhưng StartsWith trần sẽ coi cái sau nằm trong cái trước.
-            var prefix = root.EndsWith(Path.DirectorySeparatorChar)
-                ? root
-                : root + Path.DirectorySeparatorChar;
+            // So kèm dấu phân cách: "D:\App" và "D:\AppData" là hai thư mục
+            // khác nhau, StartsWith trần sẽ coi cái sau nằm trong cái trước.
+            var prefix = blocked.EndsWith(Path.DirectorySeparatorChar)
+                ? blocked
+                : blocked + Path.DirectorySeparatorChar;
 
-            if (fullPath.StartsWith(prefix, comparison))
+            if (normalized.StartsWith(prefix, comparison))
             {
                 return true;
             }
@@ -191,8 +217,8 @@ public sealed class DirectoryBrowser(BackupOptions options)
     }
 }
 
-/// <param name="Path">Thư mục đang xem; <c>null</c> khi đang ở danh sách gốc.</param>
-/// <param name="Parent">Thư mục cha nếu còn trong phạm vi cho phép.</param>
+/// <param name="Path">Thư mục đang xem; <c>null</c> khi đang ở danh sách ổ đĩa.</param>
+/// <param name="Parent">Thư mục cha; <c>null</c> khi đang ở gốc ổ đĩa.</param>
 public sealed record DirectoryListing(
     string? Path,
     string? Parent,

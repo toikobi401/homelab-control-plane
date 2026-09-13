@@ -97,17 +97,25 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             </div>
 
             <div className="space-y-1.5">
-              <Label>Thư mục nguồn</Label>
+              <Label htmlFor="job-source">Thư mục nguồn</Label>
+
+              {/* Ô nhập đứng trước cây thư mục: biết đường dẫn rồi thì dán vào
+                  là xong, nhanh hơn bấm qua nhiều cấp. Ctrl+L rồi Ctrl+C trong
+                  File Explorer là có sẵn đường dẫn đầy đủ. */}
+              <Input
+                id="job-source"
+                value={source ?? ''}
+                onChange={(event) => setSource(event.target.value || null)}
+                placeholder="D:\Du lieu\anh"
+                autoComplete="off"
+                spellCheck={false}
+                className="font-mono text-xs"
+              />
+              <p className="text-xs text-muted-foreground">
+                Gõ hoặc dán đường dẫn, hoặc chọn trong cây bên dưới.
+              </p>
+
               <FolderPicker value={source} onChange={setSource} />
-              {source ? (
-                <p className="truncate text-xs text-muted-foreground" title={source}>
-                  Đã chọn: {source}
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Bấm tên thư mục để chọn, bấm mũi tên để mở vào trong.
-                </p>
-              )}
             </div>
 
             <div className="space-y-1.5">

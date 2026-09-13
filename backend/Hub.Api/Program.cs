@@ -122,11 +122,13 @@ builder.Services.AddSingleton<IBackupRunner, RcloneRunner>();
 // thời mỗi cái giữ một khoá riêng và cùng chạy rclone lên một đích.
 builder.Services.AddSingleton<BackupJobLocks>();
 
-// Duyet thu muc de chon nguon sao luu. Gioi han pham vi bang Backup:BrowseRoots
-// — he thong da mo ra Internet (§4a) nen endpoint liet ke thu muc la be mat
-// tan cong that, khong phai tien ich vo hai.
+// Duyet thu muc de chon nguon sao luu. Duyet duoc moi o dia co dinh, chi chan
+// vai thu muc nhay cam (Windows, Program Files, thu muc du lieu cua hub) —
+// xem DirectoryBrowser. dataDirectory phai truyen vao vi no den tu HUB_DATA_DIR
+// luc chay, khong hardcode duoc.
 builder.Services.AddSingleton(provider => new DirectoryBrowser(
-    provider.GetRequiredService<IOptions<BackupOptions>>().Value));
+    provider.GetRequiredService<IOptions<BackupOptions>>().Value,
+    dataDirectory));
 
 // Job tao tu giao dien luu ra backup-jobs.json rieng, KHONG ghi vao
 // appsettings.Production.json (file do giu token Tailscale va cau hinh

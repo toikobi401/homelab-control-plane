@@ -89,6 +89,37 @@ describe('JobDialog', () => {
     expect(screen.getByRole('button', { name: 'Tạo công việc' })).toBeDisabled()
   })
 
+  /**
+   * Ô nhập đường dẫn là cách nhanh nhất khi đã biết đường dẫn — dán từ File
+   * Explorer là xong. Phải gửi lên đúng chuỗi đã gõ, không qua cây thư mục.
+   */
+  it('gõ thẳng đường dẫn vào ô nhập cũng lưu được', async () => {
+    const fetchMock = stubApi()
+
+    renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
+
+    await userEvent.type(screen.getByLabelText('Tên'), 'anh-cu')
+    await userEvent.type(screen.getByLabelText('Thư mục nguồn'), 'E:\\Anh\\2026')
+    await userEvent.type(screen.getByLabelText('Đích trên cloud'), 'hub:backup/anh-cu')
+    await userEvent.click(screen.getByRole('button', { name: 'Tạo công việc' }))
+
+    await waitFor(() => expect(savedBody(fetchMock)).toBeTruthy())
+
+    expect(savedBody(fetchMock)).toMatchObject({
+      name: 'anh-cu',
+      source: 'E:\\Anh\\2026',
+    })
+  })
+
+  it('chọn trong cây thì điền vào ô nhập', async () => {
+    stubApi()
+
+    renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
+    await userEvent.click(await screen.findByText('D:\\Du lieu'))
+
+    expect(screen.getByLabelText('Thư mục nguồn')).toHaveValue('D:\\Du lieu')
+  })
+
   it('gửi đúng dữ liệu đã nhập', async () => {
     const fetchMock = stubApi()
 

@@ -898,11 +898,18 @@ sẽ làm hỏng toàn bộ cấu hình hub. Đây không phải lo xa: đã ki�
 pháp khiến hub bỏ qua **toàn bộ** nội dung, mất luôn cả MeshCentral lẫn Tailscale. Tách ra thì hỏng
 cũng chỉ mất danh sách job.
 
-**Duyệt thư mục giới hạn bằng `Backup:BrowseRoots`.** Hệ thống đã mở ra Internet (§4a), nên endpoint
-liệt kê thư mục là bề mặt tấn công thật — ai chiếm được phiên đăng nhập đều đọc được cấu trúc ổ
-đĩa. Khác §5c (ở đó có một `LibraryPath` duy nhất): mục đích ở đây là duyệt tự do, nên phải có danh
-sách gốc rõ ràng thay vì một thư mục. Chống path traversal đúng cách §5c quy định, và có test riêng
-(`DirectoryBrowserTests`) vì đây là chỗ không được tin suông.
+**Duyệt thư mục: danh sách chặn, không phải danh sách cho phép** *(sửa 2026-09-13)*. Bản đầu giới
+hạn bằng `Backup:BrowseRoots` — chỉ duyệt được vài thư mục đã khai. Người dùng cần chọn thư mục bất
+kỳ, nên đổi sang duyệt mọi ổ đĩa cố định và chỉ chặn `Backup:BlockedPaths`.
+
+Mặc định chặn: thư mục Windows, Program Files, và **thư mục dữ liệu của hub** — nơi chứa `hub.db`
+(hash mật khẩu, phiên đăng nhập) và `appsettings.Production.json` (token Tailscale). Đây đều là chỗ
+vừa không ai sao lưu, vừa lộ nhiều nhất nếu phiên đăng nhập bị chiếm.
+
+Đây là **nới lỏng có ý thức**, không phải sơ suất: hệ thống đã mở ra Internet (§4a) và hub chạy dưới
+LocalSystem. Cái giữ lại là chuẩn hoá `Path.GetFullPath` trước khi kiểm tra, nên không vòng vào vùng
+bị chặn bằng đường dẫn lắt léo kiểu `..\..\Windows`. Có test riêng (`DirectoryBrowserTests`) cho
+từng trường hợp.
 
 ### Filter file kiểu `.gitignore` — theo từng job
 
@@ -1353,6 +1360,8 @@ lý do.
 | 2026-09-13 | Job sao lưu **tạo được từ giao diện** (chọn thư mục, sinh filter) — mở rộng §5d | Người dùng yêu cầu kiểu Mega desktop. Job khai tay vẫn chạy; hai nguồn gộp lại |
 | 2026-09-13 | Job tạo từ UI lưu vào **`backup-jobs.json` riêng**, không ghi vào `appsettings.Production.json` | File đó giữ token Tailscale và cấu hình MeshCentral; JSON hỏng cú pháp làm hub bỏ qua toàn bộ nội dung — đã kiểm chứng thật. Tách ra thì hỏng chỉ mất danh sách job |
 | 2026-09-13 | Duyệt thư mục giới hạn bằng `Backup:BrowseRoots`, có test path traversal riêng | Hệ thống đã mở ra Internet (§4a); endpoint liệt kê thư mục là bề mặt tấn công thật, không phải tiện ích vô hại |
+| 2026-09-13 | **Đổi sang danh sách chặn** (`BlockedPaths`) thay cho danh sách cho phép — duyệt được mọi ổ đĩa | Người dùng cần chọn thư mục bất kỳ. Vẫn chặn Windows, Program Files, và thư mục dữ liệu hub (chứa hash mật khẩu + token) |
+| 2026-09-13 | Thêm ô nhập đường dẫn cạnh cây thư mục, KHÔNG dùng `showDirectoryPicker` của trình duyệt | API đó chọn thư mục trên máy mở trình duyệt (có thể là điện thoại), không phải máy chạy hub — và vì bảo mật nó không trả đường dẫn tuyệt đối, thứ rclone bắt buộc phải có |
 | 2026-09-10 | **Đảo ngược một phần non-goal "không ứng dụng native"**: thêm app React Native cho **Android**, chỉ để sao lưu ảnh nền | Trình duyệt không có quyền đọc thư viện ảnh hay chạy nền trên di động — giới hạn hệ điều hành, không phải cấu hình. Ngoại lệ hẹp: chỉ tính năng này, chỉ Android; mọi thứ khác của hub vẫn là web |
 | 2026-09-10 | **Không build app cho iOS.** iPhone dùng web upload thủ công hoặc Expo Go thủ công (không chạy nền) | Điều tra xác nhận: Expo Go đã cài sẵn không chạy nền được trên iOS (tài liệu chính thức Expo — *"Background Fetch is not enabled in the iOS Expo Go app"*). Development build cho iPhone vật lý bắt buộc $99/năm Apple Developer Program, không có cách né cho "chỉ dùng cá nhân". Chi phí không đáng cho một tính năng hẹp — quyết định của người dùng sau khi nghe đủ dữ kiện |
 | 2026-09-10 | Ảnh điện thoại đi qua endpoint upload riêng (`/api/backup/photos/upload`), không qua `{jobName}/run` | `run` chạy job đã cấu hình sẵn với `Source` tĩnh; ảnh đến từ file client gửi lên, không phải thư mục cố định trên máy chủ. Sau khi nhận, thư mục đích có thể làm `Source` của một job thường — tái dùng luồng rclone đã có, không viết đường lên cloud thứ hai |

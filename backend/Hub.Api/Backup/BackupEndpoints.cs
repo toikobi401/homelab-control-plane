@@ -117,8 +117,8 @@ public static class BackupEndpoints
     /// Duyệt thư mục để chọn nguồn sao lưu.
     ///
     /// Chỉ trả tên thư mục, không đọc nội dung file. Phạm vi giới hạn bởi
-    /// <c>Backup:BrowseRoots</c> — xem <see cref="DirectoryBrowser"/> để biết
-    /// vì sao endpoint này cần hai lớp phòng thủ.
+    /// <c>Backup:BlockedPaths</c> — xem <see cref="DirectoryBrowser"/> để biết
+    /// vì sao vẫn cần chặn vài thư mục dù đã mở duyệt toàn ổ đĩa.
     /// </summary>
     private static Results<Ok<DirectoryListingDto>, ProblemHttpResult> BrowseAsync(
         DirectoryBrowser browser,

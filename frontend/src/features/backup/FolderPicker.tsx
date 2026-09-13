@@ -8,12 +8,15 @@ import { useBrowseDirectories } from '@/shared/api/backup'
 /**
  * Chọn thư mục trên máy chạy hub.
  *
- * Backend chỉ trả thư mục nằm trong `Backup:BrowseRoots` — người dùng không
- * duyệt được cả ổ đĩa. Giao diện không nói ra giới hạn đó bằng lời: danh sách
- * gốc ngắn đã tự nói, và giải thích thêm chỉ làm rối.
+ * Duyệt được mọi ổ đĩa cố định; backend chỉ chặn vài thư mục nhạy cảm
+ * (`Backup:BlockedPaths`) và trả lỗi khi chạm vào chúng.
  *
- * Không có ô gõ đường dẫn tự do: gõ tay dễ sai, và backend sẽ từ chối đường dẫn
- * ngoài phạm vi — để người dùng gõ rồi báo lỗi là bắt họ đoán.
+ * Đi kèm ô nhập đường dẫn ở `JobDialog`, không thay thế nó: biết đường dẫn rồi
+ * thì dán vào nhanh hơn, còn cây thư mục dùng khi chưa nhớ rõ.
+ *
+ * Vì sao không dùng `showDirectoryPicker` của trình duyệt: nó chọn thư mục trên
+ * MÁY ĐANG MỞ TRÌNH DUYỆT (có thể là điện thoại), không phải máy chạy hub — và
+ * vì bảo mật nó không trả đường dẫn tuyệt đối, thứ rclone bắt buộc phải có.
  */
 export function FolderPicker({
   value,

@@ -257,23 +257,36 @@ làm hỏng toàn bộ cấu hình hub).
 Hai nguồn gộp lại khi chạy. Job khai tay thắng khi trùng tên, và API từ chối lưu tên đã có trong
 `appsettings` thay vì im lặng tạo một job không bao giờ chạy.
 
-### Giới hạn phạm vi duyệt — bắt buộc khai
+### Chọn thư mục nguồn
+
+Hai cách, dùng cách nào cũng được:
+
+- **Gõ hoặc dán đường dẫn** — nhanh nhất khi đã biết. Trong File Explorer bấm `Ctrl+L` rồi `Ctrl+C`
+  là có đường dẫn đầy đủ.
+- **Duyệt cây thư mục** — bấm tên để chọn, bấm mũi tên để mở vào trong.
+
+Duyệt được **mọi ổ đĩa cố định**. Chỉ vài thư mục bị chặn:
 
 ```json
 "Backup": {
-  "BrowseRoots": [
-    "D:\Du lieu",
-    "C:\Users\<tên>\Documents"
+  "BlockedPaths": [
+    "C:\Windows",
+    "D:\App\HubData"
   ]
 }
 ```
 
-⚠️ **Để trống thì rơi về mọi ổ đĩa cố định.** Hệ thống đã mở ra Internet (§4a), nên endpoint liệt kê
-thư mục là bề mặt tấn công thật: ai chiếm được phiên đăng nhập đều đọc được cấu trúc ổ đĩa trong
-phạm vi này. Khai hẹp nhất có thể.
+Để trống thì dùng mặc định: thư mục **Windows**, **Program Files**, và **thư mục dữ liệu của hub**.
 
-Đường dẫn nằm ngoài danh sách bị chặn ở **hai** chỗ — lúc duyệt và lúc lưu job — vì người gọi có thể
-gửi thẳng đường dẫn lên API mà không qua bước duyệt.
+⚠️ Thư mục dữ liệu hub bị chặn có lý do: nó chứa `hub.db` (hash mật khẩu, phiên đăng nhập) và
+`appsettings.Production.json` (token Tailscale). Muốn sao lưu nó thì dùng job khai tay trong
+`appsettings` với đích là remote `crypt` — xem mục mã hoá ở trên.
+
+⚠️ Khai `BlockedPaths` sẽ **thay hẳn** mặc định, không cộng thêm. Khai rồi thì tự liệt kê đủ.
+
+Đường dẫn bị chặn từ chối ở **hai** chỗ — lúc duyệt và lúc lưu job — vì người gọi có thể gửi thẳng
+đường dẫn lên API mà không qua bước duyệt. Đường dẫn được chuẩn hoá (`Path.GetFullPath`) trước khi
+kiểm tra, nên đường dẫn lắt léo không vòng qua được.
 
 ### File lọc
 
@@ -295,7 +308,7 @@ GET    /api/backup                    trạng thái các job + lần chạy gầ
 GET    /api/backup/history?limit=20   lịch sử
 POST   /api/backup/{tên}/run          chạy một job
 
-GET    /api/backup/browse?path=       duyệt thư mục (giới hạn bởi BrowseRoots)
+GET    /api/backup/browse?path=       duyệt thư mục (chặn bởi BlockedPaths)
 GET    /api/backup/presets            mẫu nội dung file lọc
 POST   /api/backup/jobs               tạo hoặc sửa job
 DELETE /api/backup/jobs/{tên}         xoá job do người dùng tạo
