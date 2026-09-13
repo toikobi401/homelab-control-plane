@@ -22,8 +22,10 @@ public sealed class BackupServiceTests
         Destination = "gdrive:backup/tai-lieu"
     };
 
+    private readonly InMemoryBackupJobStore _jobStore = new();
+
     private BackupService CreateService(FakeBackupRunner runner, BackupOptions options) =>
-        new(runner, _store, _clock, options, _locks);
+        new(runner, _store, _clock, options, _locks, _jobStore);
 
     [Fact]
     public async Task Job_khong_ton_tai_thi_bao_loi_validation()
@@ -273,4 +275,35 @@ internal sealed class InMemoryBackupStore : IBackupStore
         foreach (var run in toRemove) { _runs.Remove(run); }
         return Task.FromResult(toRemove.Count);
     }
+}
+
+/// <summary>
+/// Store job trong bo nho. Mac dinh rong — moi test hien co dung job khai trong
+/// BackupOptions, nen gop hai nguon khong duoc lam doi hanh vi cu.
+/// </summary>
+internal sealed class InMemoryBackupJobStore : IBackupJobStore
+{
+    private readonly List<BackupJobOptions> _jobs = [];
+
+    public Task<IReadOnlyList<BackupJobOptions>> GetJobsAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<BackupJobOptions>>(_jobs);
+
+    public Task<Result> SaveJobAsync(BackupJobOptions job, CancellationToken cancellationToken = default)
+    {
+        _jobs.RemoveAll(j => string.Equals(j.Name, job.Name, StringComparison.OrdinalIgnoreCase));
+        _jobs.Add(job);
+        return Task.FromResult(Result.Success());
+    }
+
+    public Task<bool> DeleteJobAsync(string name, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_jobs.RemoveAll(j =>
+            string.Equals(j.Name, name, StringComparison.OrdinalIgnoreCase)) > 0);
+
+    public Task<Result<string>> WriteFilterFileAsync(
+        string sourceDirectory, string content, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Result.Success(System.IO.Path.Combine(sourceDirectory, ".backupignore")));
+
+    public Task<string> ReadFilterFileAsync(
+        string? filterFilePath, CancellationToken cancellationToken = default) =>
+        Task.FromResult(string.Empty);
 }

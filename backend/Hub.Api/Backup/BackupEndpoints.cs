@@ -33,6 +33,28 @@ public static class BackupEndpoints
             .WithName("RunBackupJob")
             .WithSummary("Chạy một công việc sao lưu");
 
+        group.MapGet("/browse", BrowseAsync)
+            .WithName("BrowseBackupDirectories")
+            .WithSummary("Duyệt thư mục trên máy chạy hub để chọn nguồn sao lưu");
+
+        group.MapGet("/presets", GetPresets)
+            .WithName("GetBackupFilterPresets")
+            .WithSummary("Mẫu nội dung file lọc");
+
+        group.MapPost("/jobs", SaveJobAsync)
+            .RequireAntiforgery()
+            .WithName("SaveBackupJob")
+            .WithSummary("Tạo hoặc sửa một công việc sao lưu");
+
+        group.MapDelete("/jobs/{jobName}", DeleteJobAsync)
+            .RequireAntiforgery()
+            .WithName("DeleteBackupJob")
+            .WithSummary("Xoá một công việc sao lưu do người dùng tạo");
+
+        group.MapGet("/jobs/{jobName}/filter", GetFilterAsync)
+            .WithName("GetBackupJobFilter")
+            .WithSummary("Nội dung file lọc của một công việc");
+
         return builder;
     }
 
@@ -40,7 +62,7 @@ public static class BackupEndpoints
         BackupService backupService,
         CancellationToken cancellationToken)
     {
-        var jobs = backupService.GetJobs();
+        var jobs = await backupService.GetJobsAsync(cancellationToken);
 
         // Kiểm tra rclone ngay ở màn hình trạng thái: thiếu nó là lỗi cấu hình
         // của người vận hành, phải nói rõ trước khi họ bấm "chạy" rồi mới thấy
@@ -89,6 +111,127 @@ public static class BackupEndpoints
         }
 
         return TypedResults.Ok(ToDto(result.Value));
+    }
+
+    /// <summary>
+    /// Duyệt thư mục để chọn nguồn sao lưu.
+    ///
+    /// Chỉ trả tên thư mục, không đọc nội dung file. Phạm vi giới hạn bởi
+    /// <c>Backup:BrowseRoots</c> — xem <see cref="DirectoryBrowser"/> để biết
+    /// vì sao endpoint này cần hai lớp phòng thủ.
+    /// </summary>
+    private static Results<Ok<DirectoryListingDto>, ProblemHttpResult> BrowseAsync(
+        DirectoryBrowser browser,
+        string? path = null)
+    {
+        var result = browser.List(path);
+
+        if (result.IsFailure)
+        {
+            return ToProblem(result.Error!.Value);
+        }
+
+        var listing = result.Value;
+        return TypedResults.Ok(new DirectoryListingDto(
+            Path: listing.Path,
+            Parent: listing.Parent,
+            Entries: [.. listing.Entries.Select(e => new DirectoryEntryDto(e.Name, e.Path))]));
+    }
+
+    private static Ok<IReadOnlyList<FilterPresetDto>> GetPresets()
+    {
+        IReadOnlyList<FilterPresetDto> presets =
+            [.. FilterPresets.All.Select(p => new FilterPresetDto(p.Name, p.Description, p.Content))];
+
+        return TypedResults.Ok(presets);
+    }
+
+    /// <summary>
+    /// Tạo hoặc sửa một công việc, kèm nội dung file lọc.
+    ///
+    /// Ghi vào <c>backup-jobs.json</c> riêng, KHÔNG vào
+    /// <c>appsettings.Production.json</c> — file đó giữ token Tailscale và cấu
+    /// hình MeshCentral, một lỗi ghi sẽ làm hỏng toàn bộ cấu hình hub.
+    /// </summary>
+    private static async Task<Results<Ok<SaveJobResultDto>, ProblemHttpResult>> SaveJobAsync(
+        SaveJobRequest request,
+        IBackupJobStore jobStore,
+        BackupService backupService,
+        CancellationToken cancellationToken)
+    {
+        // Trùng tên với job khai tay trong appsettings thì từ chối: job khai tay
+        // luôn thắng khi gộp, nên job lưu ở đây sẽ không bao giờ chạy — im lặng
+        // ghi vào là lừa người dùng.
+        var existing = await backupService.FindJobAsync(request.Name, cancellationToken);
+        var stored = await jobStore.GetJobsAsync(cancellationToken);
+        var isStored = stored.Any(j =>
+            string.Equals(j.Name, request.Name, StringComparison.OrdinalIgnoreCase));
+
+        if (existing is not null && !isStored)
+        {
+            return ToProblem(ResultError.Conflict(
+                "Đã có công việc cùng tên khai trong file cấu hình. Đổi tên khác."));
+        }
+
+        var job = new BackupJobOptions
+        {
+            Name = request.Name.Trim(),
+            Source = request.Source,
+            Destination = request.Destination.Trim(),
+            Encrypted = request.Encrypted,
+            DeleteExtra = request.DeleteExtra,
+            Enabled = true
+        };
+
+        // Ghi file lọc trước khi lưu job: có nội dung thì job mới cần trỏ tới.
+        if (!string.IsNullOrWhiteSpace(request.FilterContent))
+        {
+            var filter = await jobStore.WriteFilterFileAsync(
+                request.Source, request.FilterContent, cancellationToken);
+
+            if (filter.IsFailure)
+            {
+                return ToProblem(filter.Error!.Value);
+            }
+
+            job.FilterFile = filter.Value;
+        }
+
+        var saved = await jobStore.SaveJobAsync(job, cancellationToken);
+        if (saved.IsFailure)
+        {
+            return ToProblem(saved.Error!.Value);
+        }
+
+        return TypedResults.Ok(new SaveJobResultDto(job.Name, job.FilterFile));
+    }
+
+    private static async Task<Results<NoContent, NotFound, ProblemHttpResult>> DeleteJobAsync(
+        string jobName,
+        IBackupJobStore jobStore,
+        CancellationToken cancellationToken)
+    {
+        var removed = await jobStore.DeleteJobAsync(jobName, cancellationToken);
+
+        // Không xoá file .backupignore: nó nằm trong thư mục của người dùng,
+        // xoá file trong thư mục họ là việc vượt quá thứ họ vừa yêu cầu.
+        return removed ? TypedResults.NoContent() : TypedResults.NotFound();
+    }
+
+    private static async Task<Results<Ok<FilterContentDto>, NotFound>> GetFilterAsync(
+        string jobName,
+        BackupService backupService,
+        IBackupJobStore jobStore,
+        CancellationToken cancellationToken)
+    {
+        var job = await backupService.FindJobAsync(jobName, cancellationToken);
+        if (job is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var content = await jobStore.ReadFilterFileAsync(job.FilterFile, cancellationToken);
+        return TypedResults.Ok(new FilterContentDto(job.Source, job.FilterFile, content));
     }
 
     private static BackupRunDto ToDto(BackupRun run) => new(
@@ -142,3 +285,31 @@ public sealed record BackupRunDto(
     long BytesTransferred,
     long Errors,
     string? ErrorMessage);
+
+/// <param name="Path">Thư mục đang xem; <c>null</c> nghĩa là danh sách ổ gốc.</param>
+/// <param name="Parent">Thư mục cha, <c>null</c> khi đã ở gốc cho phép.</param>
+public sealed record DirectoryListingDto(
+    string? Path,
+    string? Parent,
+    IReadOnlyList<DirectoryEntryDto> Entries);
+
+public sealed record DirectoryEntryDto(string Name, string Path);
+
+/// <param name="Content">Nội dung file lọc, ghi nguyên văn — .NET không parse.</param>
+public sealed record FilterPresetDto(string Name, string Description, string Content);
+
+/// <param name="FilterContent">
+/// Nội dung file lọc. Để trống thì không sinh file, sao lưu toàn bộ thư mục.
+/// </param>
+public sealed record SaveJobRequest(
+    string Name,
+    string Source,
+    string Destination,
+    bool Encrypted,
+    bool DeleteExtra,
+    string? FilterContent);
+
+/// <param name="FilterFile">Đường dẫn file lọc đã ghi, <c>null</c> nếu không có.</param>
+public sealed record SaveJobResultDto(string Name, string? FilterFile);
+
+public sealed record FilterContentDto(string Source, string? FilterFile, string Content);

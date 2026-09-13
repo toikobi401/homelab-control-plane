@@ -886,6 +886,24 @@ Backend cho PC/laptop **đã tồn tại**: `Hub.Core/Backup` (`BackupService`, 
 Ba việc còn thiếu, ghi ở các mục dưới: **filter file theo job**, **sao lưu ảnh từ điện thoại**, và
 **lịch tự động** (chưa thiết kế, xem §12).
 
+### Tạo công việc từ giao diện — sửa đổi 2026-09-13
+
+Mục trên nói job là *"cấu hình tĩnh trong `appsettings.json`"*. **Đã mở rộng:** người dùng chọn thư
+mục và tạo job ngay trên giao diện, kiểu Mega desktop. Job khai tay vẫn hoạt động như cũ — hai
+nguồn gộp lại, job khai tay thắng khi trùng tên.
+
+**Job tạo từ UI lưu vào `backup-jobs.json` riêng, KHÔNG ghi vào `appsettings.Production.json`.**
+File đó giữ token Tailscale, đường dẫn chứng chỉ, và cấu hình MeshCentral; một lỗi trong code ghi
+sẽ làm hỏng toàn bộ cấu hình hub. Đây không phải lo xa: đã kiểm chứng thực tế rằng file JSON sai cú
+pháp khiến hub bỏ qua **toàn bộ** nội dung, mất luôn cả MeshCentral lẫn Tailscale. Tách ra thì hỏng
+cũng chỉ mất danh sách job.
+
+**Duyệt thư mục giới hạn bằng `Backup:BrowseRoots`.** Hệ thống đã mở ra Internet (§4a), nên endpoint
+liệt kê thư mục là bề mặt tấn công thật — ai chiếm được phiên đăng nhập đều đọc được cấu trúc ổ
+đĩa. Khác §5c (ở đó có một `LibraryPath` duy nhất): mục đích ở đây là duyệt tự do, nên phải có danh
+sách gốc rõ ràng thay vì một thư mục. Chống path traversal đúng cách §5c quy định, và có test riêng
+(`DirectoryBrowserTests`) vì đây là chỗ không được tin suông.
+
 ### Filter file kiểu `.gitignore` — theo từng job
 
 **Quyết định: mỗi job một file filter riêng**, đặt cạnh thư mục nguồn — giống cách `.gitignore` nằm
@@ -1332,6 +1350,9 @@ lý do.
 | 2026-09-10 | Bắt buộc ghi công + backlink SoundCloud ở **mọi nơi hiển thị track**, không chỉ lúc phát | Đúng nguyên văn điều khoản API — điều kiện giữ quyền dùng, không phải gợi ý thiết kế. Áp dụng cho danh sách tìm kiếm, hàng playlist, và trình phát |
 | 2026-09-10 | Range-proxy dùng chung nhận `Stream` thay vì `FileStream` | Để cùng một hàm phục vụ được cả đọc từ đĩa (Nguồn A/B) lẫn đọc từ `HttpResponseMessage` của SoundCloud (Nguồn C) — một cơ chế Range, bất kể byte đến từ đâu |
 | 2026-09-10 | Filter file sao lưu **theo từng job** (cạnh thư mục nguồn), dùng `rclone --filter-from` có sẵn | Mỗi thư mục cần loại trừ khác nhau; một file chung toàn hệ thống kém linh hoạt. Không tự viết parser — đúng §2.3 |
+| 2026-09-13 | Job sao lưu **tạo được từ giao diện** (chọn thư mục, sinh filter) — mở rộng §5d | Người dùng yêu cầu kiểu Mega desktop. Job khai tay vẫn chạy; hai nguồn gộp lại |
+| 2026-09-13 | Job tạo từ UI lưu vào **`backup-jobs.json` riêng**, không ghi vào `appsettings.Production.json` | File đó giữ token Tailscale và cấu hình MeshCentral; JSON hỏng cú pháp làm hub bỏ qua toàn bộ nội dung — đã kiểm chứng thật. Tách ra thì hỏng chỉ mất danh sách job |
+| 2026-09-13 | Duyệt thư mục giới hạn bằng `Backup:BrowseRoots`, có test path traversal riêng | Hệ thống đã mở ra Internet (§4a); endpoint liệt kê thư mục là bề mặt tấn công thật, không phải tiện ích vô hại |
 | 2026-09-10 | **Đảo ngược một phần non-goal "không ứng dụng native"**: thêm app React Native cho **Android**, chỉ để sao lưu ảnh nền | Trình duyệt không có quyền đọc thư viện ảnh hay chạy nền trên di động — giới hạn hệ điều hành, không phải cấu hình. Ngoại lệ hẹp: chỉ tính năng này, chỉ Android; mọi thứ khác của hub vẫn là web |
 | 2026-09-10 | **Không build app cho iOS.** iPhone dùng web upload thủ công hoặc Expo Go thủ công (không chạy nền) | Điều tra xác nhận: Expo Go đã cài sẵn không chạy nền được trên iOS (tài liệu chính thức Expo — *"Background Fetch is not enabled in the iOS Expo Go app"*). Development build cho iPhone vật lý bắt buộc $99/năm Apple Developer Program, không có cách né cho "chỉ dùng cá nhân". Chi phí không đáng cho một tính năng hẹp — quyết định của người dùng sau khi nghe đủ dữ kiện |
 | 2026-09-10 | Ảnh điện thoại đi qua endpoint upload riêng (`/api/backup/photos/upload`), không qua `{jobName}/run` | `run` chạy job đã cấu hình sẵn với `Source` tĩnh; ảnh đến từ file client gửi lên, không phải thư mục cố định trên máy chủ. Sau khi nhận, thư mục đích có thể làm `Source` của một job thường — tái dùng luồng rclone đã có, không viết đường lên cloud thứ hai |

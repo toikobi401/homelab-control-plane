@@ -20,27 +20,54 @@ public sealed class BackupService
     // lẫn nhau, và thống kê trả về vô nghĩa. Bộ khoá là singleton (xem
     // BackupJobLocks) — service này scoped nên không giữ khoá trong chính nó.
     private readonly BackupJobLocks _locks;
+    private readonly IBackupJobStore _jobStore;
 
     public BackupService(
         IBackupRunner runner,
         IBackupStore store,
         IClock clock,
         BackupOptions options,
-        BackupJobLocks locks)
+        BackupJobLocks locks,
+        IBackupJobStore jobStore)
     {
         _runner = runner;
         _store = store;
         _clock = clock;
         _options = options;
         _locks = locks;
+        _jobStore = jobStore;
     }
 
-    public IReadOnlyList<BackupJobOptions> GetJobs() =>
-        _options.Jobs.Where(j => j.Enabled).ToList();
+    /// <summary>
+    /// Các công việc đang bật, gộp từ hai nguồn: khai tay trong
+    /// <c>appsettings</c> và tạo từ giao diện (<see cref="IBackupJobStore"/>).
+    ///
+    /// Job khai tay thắng khi trùng tên — cấu hình của người vận hành có thẩm
+    /// quyền cao hơn thứ tạo qua API, và <see cref="IBackupJobStore"/> đã từ
+    /// chối lưu tên trùng nên trường hợp này chỉ xảy ra khi ai đó sửa file
+    /// <c>appsettings</c> sau.
+    /// </summary>
+    public async Task<IReadOnlyList<BackupJobOptions>> GetJobsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var fromConfig = _options.Jobs.Where(j => j.Enabled).ToList();
+        var stored = await _jobStore.GetJobsAsync(cancellationToken);
 
-    public BackupJobOptions? FindJob(string name) =>
-        _options.Jobs.FirstOrDefault(j =>
-            j.Enabled && string.Equals(j.Name, name, StringComparison.OrdinalIgnoreCase));
+        var names = new HashSet<string>(
+            fromConfig.Select(j => j.Name), StringComparer.OrdinalIgnoreCase);
+
+        fromConfig.AddRange(stored.Where(j => j.Enabled && names.Add(j.Name)));
+        return fromConfig;
+    }
+
+    public async Task<BackupJobOptions?> FindJobAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        var jobs = await GetJobsAsync(cancellationToken);
+        return jobs.FirstOrDefault(j =>
+            string.Equals(j.Name, name, StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>
     /// Chạy một job. Đang chạy rồi thì từ chối thay vì xếp hàng — người dùng
@@ -50,7 +77,7 @@ public sealed class BackupService
         string jobName,
         CancellationToken cancellationToken = default)
     {
-        var job = FindJob(jobName);
+        var job = await FindJobAsync(jobName, cancellationToken);
         if (job is null)
         {
             return Result.Failure<BackupRun>(

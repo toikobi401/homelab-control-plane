@@ -150,14 +150,20 @@ public sealed class RcloneRunnerTests : IDisposable
 
         var source = Path.Combine(_workDir, "src-lon");
         Directory.CreateDirectory(source);
+        await File.WriteAllBytesAsync(Path.Combine(source, "f.bin"), new byte[1000]);
 
-        // Đủ nhiều file để kịp huỷ trước khi xong.
-        for (var i = 0; i < 200; i++)
-        {
-            await File.WriteAllBytesAsync(Path.Combine(source, $"f{i}.bin"), new byte[50_000]);
-        }
-
+        // Huỷ TRƯỚC khi chạy, không đua với rclone.
+        //
+        // Bản cũ tạo 200 file rồi CancelAfter(200ms) — nhưng chép file cục bộ
+        // có thể xong trước hạn đó, và test hỏng ngẫu nhiên (đã gặp: 1 lần hỏng
+        // trong 4 lần chạy). Test chập chờn tệ hơn không có test: nó dạy người
+        // ta bỏ qua màu đỏ.
+        //
+        // Điều cần chứng minh không đổi: huỷ phải nổi lên thành
+        // OperationCanceledException, không phải lặng lẽ báo thành công.
         using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
         var running = CreateRunner().RunAsync(
             new BackupJobOptions
             {
@@ -166,8 +172,6 @@ public sealed class RcloneRunnerTests : IDisposable
                 Destination = Path.Combine(_workDir, "dst-lon")
             },
             cts.Token);
-
-        cts.CancelAfter(TimeSpan.FromMilliseconds(200));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
     }

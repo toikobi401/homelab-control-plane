@@ -122,12 +122,27 @@ builder.Services.AddSingleton<IBackupRunner, RcloneRunner>();
 // thời mỗi cái giữ một khoá riêng và cùng chạy rclone lên một đích.
 builder.Services.AddSingleton<BackupJobLocks>();
 
+// Duyet thu muc de chon nguon sao luu. Gioi han pham vi bang Backup:BrowseRoots
+// — he thong da mo ra Internet (§4a) nen endpoint liet ke thu muc la be mat
+// tan cong that, khong phai tien ich vo hai.
+builder.Services.AddSingleton(provider => new DirectoryBrowser(
+    provider.GetRequiredService<IOptions<BackupOptions>>().Value));
+
+// Job tao tu giao dien luu ra backup-jobs.json rieng, KHONG ghi vao
+// appsettings.Production.json (file do giu token Tailscale va cau hinh
+// MeshCentral) — xem IBackupJobStore.
+builder.Services.AddSingleton<IBackupJobStore>(provider => new JsonBackupJobStore(
+    dataDirectory,
+    provider.GetRequiredService<DirectoryBrowser>(),
+    provider.GetRequiredService<ILogger<JsonBackupJobStore>>()));
+
 builder.Services.AddScoped(provider => new BackupService(
     provider.GetRequiredService<IBackupRunner>(),
     provider.GetRequiredService<IBackupStore>(),
     provider.GetRequiredService<IClock>(),
     provider.GetRequiredService<IOptions<BackupOptions>>().Value,
-    provider.GetRequiredService<BackupJobLocks>()));
+    provider.GetRequiredService<BackupJobLocks>(),
+    provider.GetRequiredService<IBackupJobStore>()));
 
 // Năng lực 1 — đọc thiết bị từ Tailscale.
 // HttpClient qua factory, không new thủ công (§3: tránh cạn socket).

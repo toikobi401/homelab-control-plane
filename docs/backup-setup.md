@@ -247,13 +247,63 @@ Chỉ bật khi thực sự cần gương đúng trạng thái nguồn, và hi�
 
 ---
 
+## Tạo công việc từ giao diện
+
+Ngoài cách khai tay ở trên, có thể chọn thư mục và tạo job ngay trên trang Sao lưu — kiểu Mega
+desktop. Job tạo theo cách này lưu vào **`backup-jobs.json`** cạnh `hub.db`, **không** ghi vào
+`appsettings.Production.json` (file đó giữ token Tailscale và cấu hình MeshCentral — một lỗi ghi
+làm hỏng toàn bộ cấu hình hub).
+
+Hai nguồn gộp lại khi chạy. Job khai tay thắng khi trùng tên, và API từ chối lưu tên đã có trong
+`appsettings` thay vì im lặng tạo một job không bao giờ chạy.
+
+### Giới hạn phạm vi duyệt — bắt buộc khai
+
+```json
+"Backup": {
+  "BrowseRoots": [
+    "D:\Du lieu",
+    "C:\Users\<tên>\Documents"
+  ]
+}
+```
+
+⚠️ **Để trống thì rơi về mọi ổ đĩa cố định.** Hệ thống đã mở ra Internet (§4a), nên endpoint liệt kê
+thư mục là bề mặt tấn công thật: ai chiếm được phiên đăng nhập đều đọc được cấu trúc ổ đĩa trong
+phạm vi này. Khai hẹp nhất có thể.
+
+Đường dẫn nằm ngoài danh sách bị chặn ở **hai** chỗ — lúc duyệt và lúc lưu job — vì người gọi có thể
+gửi thẳng đường dẫn lên API mà không qua bước duyệt.
+
+### File lọc
+
+Chọn một mẫu có sẵn (dự án code, file tạm, chỉ ảnh, bỏ file nặng) hoặc tự soạn. Nội dung ghi thành
+`.backupignore` đặt **cạnh thư mục nguồn** — giống `.gitignore` nằm cạnh code nó áp dụng.
+
+Cú pháp là của rclone, không phải `.gitignore`: mỗi dòng bắt đầu bằng `-` (loại trừ) hoặc `+` (giữ),
+`**` khớp nhiều cấp, `#` là chú thích.
+
+⚠️ **Dòng `+ **` ở cuối là bắt buộc.** rclone xét luật từ trên xuống và dừng ở dòng khớp đầu tiên —
+thiếu nó thì file không khớp luật nào sẽ bị bỏ qua thay vì được sao lưu.
+
+.NET **không đọc, không parse** nội dung file — chỉ ghi rồi truyền `--filter-from` cho rclone (§2.3).
+
 ## Dùng
 
 ```
-GET  /api/backup                  trạng thái các job + lần chạy gần nhất
-GET  /api/backup/history?limit=20 lịch sử
-POST /api/backup/{tên}/run        chạy một job
+GET    /api/backup                    trạng thái các job + lần chạy gần nhất
+GET    /api/backup/history?limit=20   lịch sử
+POST   /api/backup/{tên}/run          chạy một job
+
+GET    /api/backup/browse?path=       duyệt thư mục (giới hạn bởi BrowseRoots)
+GET    /api/backup/presets            mẫu nội dung file lọc
+POST   /api/backup/jobs               tạo hoặc sửa job
+DELETE /api/backup/jobs/{tên}         xoá job do người dùng tạo
+GET    /api/backup/jobs/{tên}/filter  nội dung file lọc hiện tại
 ```
+
+`DELETE` **không xoá file `.backupignore`** — nó nằm trong thư mục của người dùng, xoá file ở đó là
+việc vượt quá thứ họ vừa yêu cầu.
 
 Mọi endpoint yêu cầu đăng nhập; `POST` cần thêm antiforgery token (§6.5 mục 5).
 
@@ -323,8 +373,10 @@ Cách thứ hai đơn giản hơn nhưng file phải cho `SYSTEM` đọc đượ
 làm trong PowerShell **Run as Administrator**:
 
 ```powershell
-$src = Join-Path $env:APPDATA 'rcloneclone.conf'
-$dstDir = 'C:\Windows\System32\config\systemprofile\AppData\Roamingclone'
+$src = Join-Path $env:APPDATA 'rclone
+clone.conf'
+$dstDir = 'C:\Windows\System32\config\systemprofile\AppData\Roaming
+clone'
 New-Item -ItemType Directory $dstDir -Force | Out-Null
 Copy-Item $src (Join-Path $dstDir 'rclone.conf') -Force
 ```

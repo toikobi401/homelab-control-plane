@@ -82,6 +82,24 @@ public sealed class RcloneRunner : IBackupRunner
             "--low-level-retries", "10"
         ];
 
+        // Filter file: rclone tự đọc và áp cú pháp gần .gitignore. Kiểm tra tồn
+        // tại trước khi truyền — rclone báo lỗi khó hiểu khi file thiếu, mà
+        // nguyên nhân thật chỉ là gõ nhầm đường dẫn.
+        if (!string.IsNullOrWhiteSpace(job.FilterFile))
+        {
+            if (File.Exists(job.FilterFile))
+            {
+                args = [.. args, "--filter-from", job.FilterFile];
+            }
+            else
+            {
+                // §6.5 mục 4: không log đường dẫn. Nêu tên job là đủ để tìm ra.
+                _logger.LogWarning(
+                    "Backup: job {JobName} khai FilterFile nhưng file không tồn tại — bỏ qua bộ lọc",
+                    job.Name);
+            }
+        }
+
         BackupRunStats? lastStats = null;
 
         try

@@ -34,6 +34,18 @@ public sealed class BackupOptions
     public List<BackupJobOptions> Jobs { get; set; } = [];
 
     /// <summary>
+    /// Các thư mục gốc được phép duyệt khi chọn nguồn sao lưu từ giao diện.
+    ///
+    /// Để trống thì rơi về mọi ổ đĩa cố định. Khai tường minh hẹp hơn và an
+    /// toàn hơn: hệ thống đã mở ra Internet (§4a), nên endpoint duyệt thư mục
+    /// là bề mặt tấn công thật — ai chiếm được phiên đăng nhập đều đọc được
+    /// cấu trúc ổ đĩa trong phạm vi này.
+    ///
+    /// Xem <see cref="DirectoryBrowser"/> để biết cách áp.
+    /// </summary>
+    public List<string> BrowseRoots { get; set; } = [];
+
+    /// <summary>
     /// Số bản sao lưu gần nhất giữ trong lịch sử. Cũ hơn thì xoá khỏi DB —
     /// không xoá file trên cloud.
     /// </summary>
@@ -87,6 +99,16 @@ public sealed class BackupJobOptions
     /// ở máy sẽ lan lên cloud, và bản sao lưu mất luôn giá trị cứu hộ.
     /// </summary>
     public bool DeleteExtra { get; set; }
+
+    /// <summary>
+    /// Đường dẫn file filter kiểu rclone (cú pháp gần .gitignore), truyền qua
+    /// <c>--filter-from</c>. Để trống thì sao lưu toàn bộ <see cref="Source"/>,
+    /// không lọc gì.
+    ///
+    /// Không đọc hay parse nội dung file ở phía .NET — rclone tự đọc khi được
+    /// gọi. Viết lại parser là đúng thứ §2.3 cấm.
+    /// </summary>
+    public string? FilterFile { get; set; }
 
     /// <summary>Bỏ qua job này mà không cần xoá cấu hình.</summary>
     public bool Enabled { get; set; } = true;
