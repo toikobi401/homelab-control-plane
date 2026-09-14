@@ -50,6 +50,26 @@ public sealed class BackupOptions
     public List<string> BlockedPaths { get; set; } = [];
 
     /// <summary>
+    /// Thư mục chứa file người dùng tải lên từ trình duyệt.
+    ///
+    /// Máy chủ không đọc được đĩa của máy khác, kể cả trong tailnet — đây là
+    /// giới hạn hệ điều hành (§5d). Nên muốn sao lưu thư mục của một máy khác
+    /// thì mở web UI **tại chính máy đó**, chọn thư mục, và trình duyệt tải nội
+    /// dung lên đây. Sau đó thư mục này thành <c>Source</c> của một job thường
+    /// để rclone đẩy tiếp lên cloud — một đường lên cloud duy nhất.
+    ///
+    /// File **ở lại** sau khi đẩy lên cloud, không xoá: lần chạy sau rclone chỉ
+    /// đồng bộ phần đổi thay vì tải lại toàn bộ.
+    ///
+    /// Nên trỏ ra ổ riêng, không để trong thư mục dữ liệu của hub: chỗ này chứa
+    /// dữ liệu thật và có thể rất nặng.
+    /// </summary>
+    public string UploadRoot { get; set; } = @"D:\HubUploads";
+
+    /// <summary>Giới hạn cho endpoint tải lên.</summary>
+    public UploadLimitOptions Upload { get; set; } = new();
+
+    /// <summary>
     /// Số bản sao lưu gần nhất giữ trong lịch sử. Cũ hơn thì xoá khỏi DB —
     /// không xoá file trên cloud.
     /// </summary>
@@ -65,6 +85,32 @@ public sealed class BackupOptions
     public int TimeoutMinutes { get; set; } = 120;
 
     public bool IsConfigured => Jobs.Count > 0;
+}
+
+/// <summary>
+/// Giới hạn kích thước cho <c>POST /api/backup/upload</c>.
+///
+/// Không giới hạn là mở đường cho request khổng lồ làm nghẽn backend (§5d).
+/// Trình duyệt chia thư mục thành nhiều lô nhỏ, nên các số này chặn **một lô**,
+/// không phải cả thư mục.
+/// </summary>
+public sealed class UploadLimitOptions
+{
+    /// <summary>
+    /// Kích thước tối đa một file, tính bằng byte. Mặc định 2 GB.
+    ///
+    /// Vượt ngưỡng thì bỏ file đó và đếm vào <c>Rejected</c>, không làm hỏng cả
+    /// lô — một file quá lớn không nên khiến 49 file còn lại mất công tải lại.
+    /// </summary>
+    public long MaxFileBytes { get; set; } = 2L * 1024 * 1024 * 1024;
+
+    /// <summary>
+    /// Số file tối đa trong một request, chặn request khai 100.000 phần.
+    ///
+    /// Khớp với cỡ lô của giao diện (50) và chừa dư — lệch một chút thì lô hợp
+    /// lệ vẫn qua, nhưng request bịa vẫn bị chặn.
+    /// </summary>
+    public int MaxFilesPerRequest { get; set; } = 200;
 }
 
 /// <summary>Một công việc sao lưu.</summary>

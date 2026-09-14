@@ -2,6 +2,9 @@ using Hub.Api.Security;
 using Hub.Core.Backup;
 using Hub.Core.Results;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 
 namespace Hub.Api.Backup;
 
@@ -36,6 +39,11 @@ public static class BackupEndpoints
         group.MapGet("/browse", BrowseAsync)
             .WithName("BrowseBackupDirectories")
             .WithSummary("Duyệt thư mục trên máy chạy hub để chọn nguồn sao lưu");
+
+        group.MapPost("/upload", UploadAsync)
+            .RequireAntiforgery()
+            .WithName("UploadBackupFolder")
+            .WithSummary("Nhận một lô tệp người dùng tải lên từ trình duyệt");
 
         group.MapGet("/remotes", GetRemotesAsync)
             .WithName("GetRcloneRemotes")
@@ -149,6 +157,114 @@ public static class BackupEndpoints
             Path: listing.Path,
             Parent: listing.Parent,
             Entries: [.. listing.Entries.Select(e => new DirectoryEntryDto(e.Name, e.Path))]));
+    }
+
+    /// <summary>
+    /// Nhận một lô tệp do trình duyệt tải lên (§5d).
+    ///
+    /// **Vì sao có endpoint này.** <c>/{jobName}/run</c> chạy một job đã cấu hình
+    /// với <c>Source</c> cố định trên máy chủ. Nhưng máy chủ không đọc được đĩa
+    /// của máy khác, kể cả trong tailnet — nên muốn sao lưu thư mục của một máy
+    /// khác thì mở web UI tại chính máy đó và đẩy nội dung lên đây. Sau đó thư
+    /// mục này thành <c>Source</c> của một job thường: một đường lên cloud duy
+    /// nhất, không viết đường thứ hai.
+    ///
+    /// **Đọc bằng <see cref="MultipartReader"/> chứ không dùng
+    /// <c>IFormFileCollection</c>/<c>Request.Form</c>**: cả hai đệm toàn bộ body
+    /// vào RAM hoặc file tạm trước khi handler chạy. Ở đây byte đi thẳng từ
+    /// socket ra đĩa.
+    ///
+    /// Trả về con số, không trả tên tệp (§6.5 mục 4) — response có thể vào log
+    /// truy cập chung.
+    /// </summary>
+    private static async Task<Results<Ok<UploadResultDto>, ProblemHttpResult>> UploadAsync(
+        HttpRequest request,
+        UploadReceiver receiver,
+        IOptions<BackupOptions> backupOptions,
+        CancellationToken cancellationToken)
+    {
+        if (!MultipartRequestHelper.IsMultipart(request.ContentType))
+        {
+            return ToProblem(ResultError.Validation("Yêu cầu phải là multipart/form-data."));
+        }
+
+        var boundary = MultipartRequestHelper.GetBoundary(request.ContentType);
+        if (boundary is null)
+        {
+            return ToProblem(ResultError.Validation("Thiếu boundary trong multipart/form-data."));
+        }
+
+        var limits = backupOptions.Value.Upload;
+        var reader = new MultipartReader(boundary, request.Body);
+
+        string? folder = null;
+        var paths = new Queue<string>();
+        int received = 0, duplicates = 0, rejected = 0, seen = 0;
+
+        while (await reader.ReadNextSectionAsync(cancellationToken) is { } section)
+        {
+            if (!ContentDispositionHeaderValue.TryParse(
+                    section.ContentDisposition, out var disposition))
+            {
+                continue;
+            }
+
+            var name = disposition.Name.Value?.Trim('"');
+
+            // Phần text: tên thư mục và danh sách đường dẫn tương đối.
+            //
+            // Đường dẫn phải gửi riêng vì Content-Disposition chỉ mang tên trần
+            // ("img.jpg"), mất hẳn cấu trúc thư mục con — chỉ webkitRelativePath
+            // bên JS mới có "Anh/2026/img.jpg".
+            if (!disposition.IsFileDisposition())
+            {
+                var value = await section.ReadAsStringAsync(cancellationToken);
+
+                if (name == "folder") { folder = value; }
+                else if (name == "paths") { paths.Enqueue(value); }
+
+                continue;
+            }
+
+            if (folder is null)
+            {
+                return ToProblem(ResultError.Validation("Thiếu tên thư mục đích."));
+            }
+
+            if (++seen > limits.MaxFilesPerRequest)
+            {
+                return ToProblem(ResultError.Validation("Lô tải lên có quá nhiều tệp."));
+            }
+
+            var prepared = receiver.PrepareFolder(folder);
+            if (prepared.IsFailure)
+            {
+                return ToProblem(prepared.Error!.Value);
+            }
+
+            // Hết đường dẫn tương đối thì rơi về tên tệp trần — client gửi thiếu
+            // vẫn nhận được, chỉ mất cấu trúc thư mục con.
+            var relativePath = paths.Count > 0
+                ? paths.Dequeue()
+                : disposition.FileName.Value?.Trim('"') ?? string.Empty;
+
+            var outcome = await receiver.ReceiveFileAsync(
+                prepared.Value, relativePath, section.Body, cancellationToken);
+
+            switch (outcome)
+            {
+                case UploadFileOutcome.Received: received++; break;
+                case UploadFileOutcome.Duplicate: duplicates++; break;
+                default: rejected++; break;
+            }
+        }
+
+        if (folder is null)
+        {
+            return ToProblem(ResultError.Validation("Thiếu tên thư mục đích."));
+        }
+
+        return TypedResults.Ok(new UploadResultDto(received, duplicates, rejected, folder));
     }
 
     /// <summary>
@@ -348,6 +464,44 @@ public sealed record DirectoryEntryDto(string Name, string Path);
 /// <param name="Name">Tên remote, KHÔNG kèm dấu hai chấm.</param>
 /// <param name="Type">Loại remote: <c>drive</c>, <c>crypt</c>, …</param>
 public sealed record RemoteDto(string Name, string Type);
+
+/// <summary>
+/// Đọc phần đầu của một request multipart.
+///
+/// Tách riêng vì <c>Request.Form</c> và <c>IFormFile</c> đều đệm toàn bộ body
+/// trước khi handler chạy — thứ ta cố tình tránh ở endpoint tải lên.
+/// </summary>
+public static class MultipartRequestHelper
+{
+    public static bool IsMultipart(string? contentType) =>
+        !string.IsNullOrEmpty(contentType)
+        && contentType.Contains("multipart/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Lấy boundary từ Content-Type. Trả <c>null</c> nếu thiếu hoặc quá dài.
+    ///
+    /// Giới hạn độ dài theo đúng khuyến nghị của ASP.NET Core: boundary do client
+    /// gửi nên không được để nó dài tuỳ ý.
+    /// </summary>
+    public static string? GetBoundary(string? contentType)
+    {
+        if (string.IsNullOrEmpty(contentType)) { return null; }
+
+        var boundary = HeaderUtilities.RemoveQuotes(
+            MediaTypeHeaderValue.Parse(contentType).Boundary).Value;
+
+        return string.IsNullOrWhiteSpace(boundary) || boundary.Length > 70 ? null : boundary;
+    }
+}
+
+/// <param name="Received">Số tệp đã nhận và ghi mới.</param>
+/// <param name="Duplicates">Số tệp bỏ qua vì đã có nội dung y hệt (so hash).</param>
+/// <param name="Rejected">Số tệp bị từ chối: tên không hợp lệ, quá lớn, hoặc không ghi được.</param>
+/// <param name="Folder">
+/// Tên thư mục đã nhận, KHÔNG phải đường dẫn tuyệt đối — giao diện gửi lại tên
+/// này khi tạo job, và backend tự dựng <c>Source</c> từ <c>UploadRoot</c>.
+/// </param>
+public sealed record UploadResultDto(int Received, int Duplicates, int Rejected, string Folder);
 
 /// <param name="Content">Nội dung file lọc, ghi nguyên văn — .NET không parse.</param>
 public sealed record FilterPresetDto(string Name, string Description, string Content);

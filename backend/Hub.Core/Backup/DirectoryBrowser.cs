@@ -23,7 +23,15 @@ namespace Hub.Core.Backup;
 ///
 /// Không đọc nội dung file, chỉ liệt kê tên thư mục.
 /// </summary>
-public sealed class DirectoryBrowser(BackupOptions options, string dataDirectory)
+/// <param name="uploadRoot">
+/// Thư mục chứa file tải lên từ trình duyệt (<see cref="BackupOptions.UploadRoot"/>).
+/// Nằm ngoài mọi danh sách chặn — xem <see cref="IsBlocked"/> để biết vì sao
+/// miễn trừ này an toàn. <c>null</c> khi không dùng tính năng tải lên.
+/// </param>
+public sealed class DirectoryBrowser(
+    BackupOptions options,
+    string dataDirectory,
+    string? uploadRoot = null)
 {
     /// <summary>Số mục tối đa trả về một lần, chặn thư mục khổng lồ làm nghẽn.</summary>
     private const int MaxEntries = 500;
@@ -47,7 +55,7 @@ public sealed class DirectoryBrowser(BackupOptions options, string dataDirectory
         {
             return [.. options.BlockedPaths
                 .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Select(NormalizeOrNull)
+                .Select(Normalize)
                 .OfType<string>()];
         }
 
@@ -68,7 +76,7 @@ public sealed class DirectoryBrowser(BackupOptions options, string dataDirectory
         // HUB_DATA_DIR lúc chạy nên phải truyền vào, không hardcode được.
         if (!string.IsNullOrWhiteSpace(dataDirectory)) { defaults.Add(dataDirectory); }
 
-        return [.. defaults.Select(NormalizeOrNull).OfType<string>()];
+        return [.. defaults.Select(Normalize).OfType<string>()];
     }
 
     /// <summary>
@@ -86,7 +94,7 @@ public sealed class DirectoryBrowser(BackupOptions options, string dataDirectory
                 Entries: [.. roots.Select(root => new DirectoryEntry(root, root))]));
         }
 
-        var full = NormalizeOrNull(path);
+        var full = Normalize(path);
         if (full is null)
         {
             return Result.Failure<DirectoryListing>(ResultError.Validation(
@@ -143,7 +151,7 @@ public sealed class DirectoryBrowser(BackupOptions options, string dataDirectory
     /// </summary>
     public Result<string> ValidateSource(string path)
     {
-        var full = NormalizeOrNull(path);
+        var full = Normalize(path);
         if (full is null)
         {
             return Result.Failure<string>(ResultError.Validation("Đường dẫn không hợp lệ."));
@@ -163,7 +171,15 @@ public sealed class DirectoryBrowser(BackupOptions options, string dataDirectory
         return Result.Success(full);
     }
 
-    private static string? NormalizeOrNull(string path)
+    /// <summary>
+    /// Chuẩn hoá một đường dẫn về dạng tuyệt đối, đã giải hết <c>..</c> và
+    /// <c>.</c>. Trả <c>null</c> nếu đường dẫn không hợp lệ.
+    ///
+    /// Công khai để <see cref="ResolveUnderRoot"/> và phần nhận file tải lên
+    /// dùng **cùng một** cơ chế chuẩn hoá — §5d bắt buộc tái dùng lớp kiểm tra
+    /// này, không viết lại.
+    /// </summary>
+    public static string? Normalize(string path)
     {
         try
         {
@@ -185,14 +201,27 @@ public sealed class DirectoryBrowser(BackupOptions options, string dataDirectory
     /// <c>D:\App\HubData</c> không có nghĩa là cấm luôn <c>D:\App</c>, vì người
     /// dùng có thể muốn sao lưu phần còn lại của <c>D:\App</c>.
     /// </summary>
-    private bool IsBlocked(string fullPath)
+    public bool IsBlocked(string fullPath)
     {
-        var normalized = NormalizeOrNull(fullPath);
+        var normalized = Normalize(fullPath);
         if (normalized is null) { return true; }
 
         var comparison = OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
+
+        // Thư mục tải lên được miễn trừ, kiểm TRƯỚC danh sách chặn.
+        //
+        // Vì sao cần: mặc định chặn cả thư mục dữ liệu của hub, nên nếu người
+        // vận hành trỏ UploadRoot vào trong đó thì ValidateSource sẽ từ chối
+        // chính thư mục hub vừa tạo, và job không lưu được — tính năng chết
+        // đúng ở bước biến thư mục đã tải lên thành job.
+        //
+        // Vì sao an toàn: đây là thư mục do hub tạo ra, chỉ chứa thứ người dùng
+        // vừa gửi lên qua endpoint đã xác thực. Miễn trừ đúng nhánh này KHÔNG
+        // mở hub.db hay appsettings.Production.json — chúng nằm ngoài nhánh
+        // này nên vẫn bị chặn như cũ.
+        if (IsUnderUploadRoot(normalized, comparison)) { return false; }
 
         foreach (var blocked in GetBlockedPaths())
         {
@@ -214,6 +243,132 @@ public sealed class DirectoryBrowser(BackupOptions options, string dataDirectory
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Ghép một đường dẫn TƯƠNG ĐỐI do client gửi lên vào dưới một thư mục gốc,
+    /// và chỉ trả về nếu kết quả thật sự nằm trong gốc đó.
+    ///
+    /// Khác <see cref="ValidateSource"/>: đây là đường dẫn FILE **chưa tồn tại**
+    /// (sắp ghi ra), nên không kiểm tra <c>Directory.Exists</c>. Nhưng dùng đúng
+    /// cơ chế chuẩn hoá và cách so tiền tố kèm dấu phân cách — §5d bắt buộc
+    /// "cùng một lớp kiểm tra, không viết lại".
+    ///
+    /// Trình duyệt gửi <c>webkitRelativePath</c> dạng <c>Anh/2026/img.jpg</c>.
+    /// Đây chính là chỗ path traversal chui vào, nên mọi thứ dưới đây đều là
+    /// phòng thủ có chủ đích, không phải kiểm tra thừa.
+    /// </summary>
+    public Result<string> ResolveUnderRoot(string root, string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            return Result.Failure<string>(ResultError.Validation("Thiếu đường dẫn tệp."));
+        }
+
+        // Đường dẫn tuyệt đối phải chặn NGAY: Path.Combine vứt bỏ gốc khi đối số
+        // sau là đường dẫn tuyệt đối, nên Combine(root, "C:\Windows\x") trả về
+        // "C:\Windows\x" — file rơi thẳng ra ngoài mà không qua ".." nào.
+        if (Path.IsPathRooted(relativePath) || relativePath.Contains(':'))
+        {
+            return Result.Failure<string>(ResultError.Validation("Đường dẫn tệp không hợp lệ."));
+        }
+
+        var normalizedRoot = Normalize(root);
+        if (normalizedRoot is null)
+        {
+            return Result.Failure<string>(ResultError.Validation("Thư mục tải lên không hợp lệ."));
+        }
+
+        foreach (var segment in relativePath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!IsSafeSegment(segment))
+            {
+                return Result.Failure<string>(ResultError.Validation("Tên tệp không hợp lệ."));
+            }
+        }
+
+        var full = Normalize(Path.Combine(normalizedRoot, relativePath));
+        if (full is null)
+        {
+            return Result.Failure<string>(ResultError.Validation("Đường dẫn tệp không hợp lệ."));
+        }
+
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        // So kèm dấu phân cách, cùng lý do với IsBlocked: "D:\HubUploads" không
+        // được nuốt "D:\HubUploads-cu".
+        var prefix = normalizedRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? normalizedRoot
+            : normalizedRoot + Path.DirectorySeparatorChar;
+
+        if (!full.StartsWith(prefix, comparison))
+        {
+            return Result.Failure<string>(ResultError.Validation(
+                "Đường dẫn tệp nằm ngoài thư mục tải lên."));
+        }
+
+        // Kiểm cả danh sách chặn: UploadRoot được miễn trừ nên bình thường sẽ
+        // qua, nhưng nếu ai đó cấu hình UploadRoot trùng chỗ nhạy cảm thì đây là
+        // lưới cuối.
+        if (IsBlocked(full))
+        {
+            return Result.Failure<string>(ResultError.Validation("Đường dẫn tệp bị chặn."));
+        }
+
+        return Result.Success(full);
+    }
+
+    /// <summary>
+    /// Một đoạn tên (thư mục hoặc tệp) có an toàn để ghi ra đĩa không.
+    ///
+    /// Windows có vài cách làm hai tên khác nhau trỏ về cùng một file, hoặc trỏ
+    /// vào thứ không phải file:
+    /// <list type="bullet">
+    /// <item><c>..</c> — đi ngược lên trên.</item>
+    /// <item>Tên thiết bị DOS (<c>CON</c>, <c>NUL</c>, <c>COM1</c>…) — mở ra
+    /// thiết bị chứ không tạo file, kể cả khi có phần mở rộng.</item>
+    /// <item>Kết thúc bằng dấu chấm hoặc khoảng trắng — Windows lặng lẽ cắt bỏ,
+    /// nên "a.txt " và "a.txt" thành cùng một file.</item>
+    /// </list>
+    /// </summary>
+    private static bool IsSafeSegment(string segment)
+    {
+        if (segment is "." or "..") { return false; }
+
+        if (segment.AsSpan().IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) { return false; }
+
+        if (segment.EndsWith('.') || segment.EndsWith(' ')) { return false; }
+
+        // Tên thiết bị xét theo phần trước dấu chấm đầu tiên: "NUL.txt" vẫn là
+        // thiết bị NUL.
+        var stem = segment.Split('.')[0];
+        string[] devices =
+        [
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        ];
+
+        return !devices.Contains(stem, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Đường dẫn đã chuẩn hoá có nằm trong thư mục tải lên không.</summary>
+    private bool IsUnderUploadRoot(string normalized, StringComparison comparison)
+    {
+        if (string.IsNullOrWhiteSpace(uploadRoot)) { return false; }
+
+        var root = Normalize(uploadRoot);
+        if (root is null) { return false; }
+
+        if (normalized.Equals(root, comparison)) { return true; }
+
+        var prefix = root.EndsWith(Path.DirectorySeparatorChar)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+
+        return normalized.StartsWith(prefix, comparison);
     }
 }
 

@@ -275,6 +275,47 @@ cấu hình hiện tại — xem [services.md](services.md)):
 | `DeleteExtra` | `true` = `rclone sync` (xoá file thừa ở đích), `false` = `copy` |
 | `Enabled` | `false` để tắt tạm mà không xoá cấu hình |
 
+### Thư mục nhận file tải lên
+
+Máy chủ **không đọc được đĩa của máy khác**, kể cả khi cả hai cùng trong tailnet —
+đây là giới hạn hệ điều hành, không lách được bằng cấu hình. Nên muốn sao lưu thư
+mục của một máy khác thì mở web UI **tại chính máy đó**, chọn thư mục, và trình
+duyệt đẩy nội dung lên hub. Sau đó thư mục đã nhận trở thành `Source` của một job
+bình thường — một đường lên cloud duy nhất, không có đường thứ hai.
+
+```json
+{
+  "Backup": {
+    "UploadRoot": "D:\\HubUploads",
+    "Upload": {
+      "MaxFileBytes": 2147483648,
+      "MaxFilesPerRequest": 200
+    }
+  },
+  "Kestrel": {
+    "Limits": {
+      "MaxRequestBodySize": 209715200
+    }
+  }
+}
+```
+
+| Khoá | Ý nghĩa |
+|---|---|
+| `UploadRoot` | Thư mục chứa file tải lên. Nên để ổ riêng — chỗ này chứa dữ liệu thật và có thể rất nặng. |
+| `Upload:MaxFileBytes` | Cỡ tối đa một tệp. Vượt thì bỏ tệp đó, không hỏng cả lô. |
+| `Upload:MaxFilesPerRequest` | Số tệp tối đa một lô, chặn request khai hàng vạn phần. |
+| `Kestrel:Limits:MaxRequestBodySize` | Cỡ tối đa **một lô**. Giao diện tự chia thư mục thành nhiều lô nhỏ hơn ngưỡng này. |
+
+File tải lên **ở lại** sau khi đẩy lên cloud, không xoá: lần chạy sau rclone chỉ
+đồng bộ phần đổi thay vì tải lại toàn bộ. Chọn lại đúng thư mục cũ cũng chỉ tải
+phần mới — phần trùng nhận ra bằng SHA-256 và bỏ qua.
+
+⚠️ `UploadRoot` được **miễn trừ** khỏi `BlockedPaths`. Cần thế vì mặc định chặn cả
+thư mục dữ liệu của hub: trỏ `UploadRoot` vào trong đó mà không miễn trừ thì job
+không bao giờ lưu được. Miễn trừ chỉ mở đúng nhánh này — `hub.db` và
+`appsettings.Production.json` nằm ngoài nên vẫn bị chặn như cũ.
+
 ### `DeleteExtra` — mặc định `false` là có chủ đích
 
 `sync` xoá file ở đích khi nguồn không còn. Nghĩa là **xoá nhầm ở máy sẽ lan lên
@@ -350,7 +391,17 @@ GET    /api/backup/presets            mẫu nội dung file lọc
 POST   /api/backup/jobs               tạo hoặc sửa job
 DELETE /api/backup/jobs/{tên}         xoá job do người dùng tạo
 GET    /api/backup/jobs/{tên}/filter  nội dung file lọc hiện tại
+
+POST   /api/backup/upload             nhận một lô tệp tải lên từ trình duyệt
 ```
+
+`upload` nhận `multipart/form-data` với ba phần: `folder` (tên thư mục đích),
+`paths` (đường dẫn tương đối từng tệp, lặp lại, đúng thứ tự) và `files` (nội
+dung). Đường dẫn phải gửi riêng vì `Content-Disposition` chỉ mang tên trần
+(`img.jpg`), mất hẳn cấu trúc thư mục con.
+
+Trả về **số đếm, không trả tên tệp** (§6.5 mục 4): `received`, `duplicates`,
+`rejected`, `folder`.
 
 `DELETE` **không xoá file `.backupignore`** — nó nằm trong thư mục của người dùng, xoá file ở đó là
 việc vượt quá thứ họ vừa yêu cầu.

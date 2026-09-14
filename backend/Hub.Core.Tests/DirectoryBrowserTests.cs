@@ -202,4 +202,144 @@ public sealed class DirectoryBrowserTests : IDisposable
 
         Assert.NotEmpty(browser.GetRoots());
     }
+
+    // ---- ResolveUnderRoot: ghép đường dẫn tương đối do trình duyệt gửi lên ----
+    //
+    // Trình duyệt gửi `webkitRelativePath` (dạng "Anh/2026/img.jpg") tách riêng
+    // khỏi nội dung file, vì Content-Disposition chỉ mang tên trần. Đó là dữ
+    // liệu client kiểm soát hoàn toàn, nên đây là bề mặt tấn công thật.
+
+    /// <summary>Chặn đúng thư mục dữ liệu, và khai luôn vùng tải lên.</summary>
+    private DirectoryBrowser CreateUploader(string uploadRoot) =>
+        new(new BackupOptions { BlockedPaths = [_blocked] }, dataDirectory: _blocked, uploadRoot);
+
+    [Fact]
+    public void ResolveUnderRoot_cho_phep_thu_muc_con_nhieu_cap()
+    {
+        var result = CreateUploader(_allowed).ResolveUnderRoot(_allowed, "Anh/2026/img.jpg");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(Path.Combine(_allowed, "Anh", "2026", "img.jpg"), result.Value);
+    }
+
+    [Fact]
+    public void ResolveUnderRoot_chan_duong_dan_di_ra_ngoai_goc()
+    {
+        var result = CreateUploader(_allowed).ResolveUnderRoot(_allowed, "../du-lieu-hub/hub.db");
+
+        Assert.True(result.IsFailure);
+    }
+
+    /// <summary>
+    /// `Path.Combine(root, "C:\Windows\x")` trả về "C:\Windows\x" — vứt bỏ gốc.
+    /// Không chặn từ đầu thì file rơi thẳng ra ngoài mà chẳng cần ".." nào.
+    /// </summary>
+    [Fact]
+    public void ResolveUnderRoot_chan_duong_dan_tuyet_doi()
+    {
+        var browser = CreateUploader(_allowed);
+
+        Assert.True(browser.ResolveUnderRoot(_allowed, @"C:\Windows\evil.dll").IsFailure);
+        Assert.True(browser.ResolveUnderRoot(_allowed, "/etc/passwd").IsFailure);
+    }
+
+    /// <summary>NTFS alternate data stream: "a.txt:hidden" ghi vào luồng ẩn.</summary>
+    [Fact]
+    public void ResolveUnderRoot_chan_ky_tu_hai_cham()
+    {
+        var result = CreateUploader(_allowed).ResolveUnderRoot(_allowed, "a.txt:hidden");
+
+        Assert.True(result.IsFailure);
+    }
+
+    /// <summary>
+    /// Tên thiết bị DOS mở ra thiết bị chứ không tạo file, kể cả khi có phần mở
+    /// rộng — "NUL.txt" vẫn là NUL.
+    /// </summary>
+    [Fact]
+    public void ResolveUnderRoot_chan_ten_thiet_bi_DOS()
+    {
+        var browser = CreateUploader(_allowed);
+
+        Assert.True(browser.ResolveUnderRoot(_allowed, "NUL").IsFailure);
+        Assert.True(browser.ResolveUnderRoot(_allowed, "nul.txt").IsFailure);
+        Assert.True(browser.ResolveUnderRoot(_allowed, "Anh/COM1.jpg").IsFailure);
+    }
+
+    /// <summary>
+    /// Windows lặng lẽ cắt dấu chấm và khoảng trắng ở cuối, nên "a.txt " và
+    /// "a.txt" thành cùng một file — hai lần tải lên ghi đè lên nhau.
+    /// </summary>
+    [Fact]
+    public void ResolveUnderRoot_chan_ten_ket_thuc_bang_cham_hoac_trang()
+    {
+        var browser = CreateUploader(_allowed);
+
+        Assert.True(browser.ResolveUnderRoot(_allowed, "a.txt ").IsFailure);
+        Assert.True(browser.ResolveUnderRoot(_allowed, "a.txt.").IsFailure);
+    }
+
+    /// <summary>
+    /// "D:\HubUploads" không được nuốt "D:\HubUploads-cu" — cùng lý do với
+    /// danh sách chặn, nhưng ở chiều ngược lại.
+    /// </summary>
+    [Fact]
+    public void ResolveUnderRoot_khong_lan_sang_thu_muc_cung_tien_to()
+    {
+        var sibling = _allowed + "-cu";
+
+        var result = CreateUploader(_allowed).ResolveUnderRoot(_allowed, "../tai-lieu-cu/x.txt");
+
+        Assert.True(result.IsFailure);
+        Assert.False(Directory.Exists(sibling)); // không tạo gì trên đĩa
+    }
+
+    // ---- Miễn trừ blocklist cho thư mục tải lên ----
+
+    /// <summary>
+    /// Mặc định chặn cả thư mục dữ liệu của hub. Nếu người vận hành trỏ
+    /// UploadRoot vào trong đó thì không miễn trừ sẽ khiến `ValidateSource` từ
+    /// chối chính thư mục hub vừa tạo, và job không bao giờ lưu được.
+    /// </summary>
+    [Fact]
+    public void UploadRoot_khong_bi_chan_du_nam_trong_thu_muc_du_lieu()
+    {
+        var uploads = Path.Combine(_blocked, "uploads");
+        Directory.CreateDirectory(Path.Combine(uploads, "anh-dien-thoai"));
+
+        var browser = new DirectoryBrowser(new BackupOptions(), dataDirectory: _blocked, uploads);
+
+        Assert.True(browser.ValidateSource(uploads).IsSuccess);
+        Assert.True(browser.ValidateSource(Path.Combine(uploads, "anh-dien-thoai")).IsSuccess);
+    }
+
+    /// <summary>
+    /// Miễn trừ không được nới quá tay: `hub.db` (hash mật khẩu, phiên đăng
+    /// nhập) và `appsettings.Production.json` (token Tailscale) nằm cạnh thư mục
+    /// tải lên nhưng NGOÀI nhánh đó, nên vẫn phải bị chặn.
+    ///
+    /// Đây là test quan trọng nhất của phần miễn trừ — nó là thứ phân biệt "mở
+    /// đúng một nhánh" với "mở cả thư mục dữ liệu".
+    /// </summary>
+    [Fact]
+    public void Thu_muc_du_lieu_van_bi_chan_khi_co_UploadRoot()
+    {
+        var uploads = Path.Combine(_blocked, "uploads");
+        Directory.CreateDirectory(uploads);
+
+        var browser = new DirectoryBrowser(new BackupOptions(), dataDirectory: _blocked, uploads);
+
+        Assert.True(browser.ValidateSource(_blocked).IsFailure);
+        Assert.True(browser.ValidateSource(Path.Combine(_blocked, "certs")).IsFailure);
+        Assert.True(browser.List(_blocked).IsFailure);
+    }
+
+    /// <summary>Không khai UploadRoot thì mọi thứ chặn y như trước.</summary>
+    [Fact]
+    public void Khong_khai_UploadRoot_thi_khong_mien_tru_gi()
+    {
+        var browser = new DirectoryBrowser(new BackupOptions(), dataDirectory: _blocked);
+
+        Assert.True(browser.ValidateSource(_blocked).IsFailure);
+    }
 }

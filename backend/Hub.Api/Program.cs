@@ -126,9 +126,21 @@ builder.Services.AddSingleton<BackupJobLocks>();
 // vai thu muc nhay cam (Windows, Program Files, thu muc du lieu cua hub) —
 // xem DirectoryBrowser. dataDirectory phai truyen vao vi no den tu HUB_DATA_DIR
 // luc chay, khong hardcode duoc.
-builder.Services.AddSingleton(provider => new DirectoryBrowser(
-    provider.GetRequiredService<IOptions<BackupOptions>>().Value,
-    dataDirectory));
+// UploadRoot truyen vao lam vung mien tru: thu muc do hub tao de chua file
+// nguoi dung tai len, khong duoc dinh danh sach chan — neu khong thi
+// SaveJobAsync tu choi chinh thu muc hub vua tao. Xem DirectoryBrowser.IsBlocked.
+builder.Services.AddSingleton(provider =>
+{
+    var backupOptions = provider.GetRequiredService<IOptions<BackupOptions>>().Value;
+    return new DirectoryBrowser(backupOptions, dataDirectory, backupOptions.UploadRoot);
+});
+
+// Nhan file tai len tu trinh duyet. Logic nam o Hub.Core chu khong trong lambda
+// cua minimal API: Hub.Api.Tests chua co WebApplicationFactory nen nhet vao
+// endpoint la tu lam cho no khong test duoc.
+builder.Services.AddSingleton(provider => new UploadReceiver(
+    provider.GetRequiredService<DirectoryBrowser>(),
+    provider.GetRequiredService<IOptions<BackupOptions>>().Value));
 
 // Job tao tu giao dien luu ra backup-jobs.json rieng, KHONG ghi vao
 // appsettings.Production.json (file do giu token Tailscale va cau hinh
@@ -206,6 +218,14 @@ using (var scope = app.Services.CreateScope())
     {
         app.Logger.LogWarning(
             "Đánh dấu {Count} lần sao lưu dở dang là đã huỷ (hub tắt giữa chừng)", stale);
+    }
+
+    // Tab đóng giữa chừng hoặc hub tắt đột ngột để lại file .part ghi dở. Không
+    // dọn thì chúng nằm đó mãi — cùng tinh thần với CancelStaleRunsAsync.
+    var partials = scope.ServiceProvider.GetRequiredService<UploadReceiver>().CleanPartialFiles();
+    if (partials > 0)
+    {
+        app.Logger.LogInformation("Đã dọn {Count} tệp tải lên dở dang", partials);
     }
 }
 
