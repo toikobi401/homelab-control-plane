@@ -307,6 +307,8 @@ public static class BackupEndpoints
         SaveJobRequest request,
         IBackupJobStore jobStore,
         BackupService backupService,
+        DirectoryBrowser browser,
+        IOptions<BackupOptions> backupOptions,
         CancellationToken cancellationToken)
     {
         // Trùng tên với job khai tay trong appsettings thì từ chối: job khai tay
@@ -333,21 +335,60 @@ public static class BackupEndpoints
             return ToProblem(destinationCheck.Error!.Value);
         }
 
+        // Thư mục đã tải lên: dựng Source ở phía máy chủ từ UploadRoot, không
+        // nhận đường dẫn tuyệt đối do giao diện gửi. Dùng đúng lớp kiểm tra của
+        // endpoint tải lên nên "../.." không ra khỏi được thư mục tải lên.
+        var source = request.Source;
+        if (!string.IsNullOrWhiteSpace(request.UploadFolder))
+        {
+            var resolved = browser.ResolveUnderRoot(
+                backupOptions.Value.UploadRoot, request.UploadFolder);
+
+            if (resolved.IsFailure)
+            {
+                return ToProblem(resolved.Error!.Value);
+            }
+
+            source = resolved.Value;
+        }
+
         var job = new BackupJobOptions
         {
             Name = request.Name.Trim(),
-            Source = request.Source,
+            Source = source,
             Destination = request.Destination.Trim(),
             Encrypted = request.Encrypted,
             DeleteExtra = request.DeleteExtra,
             Enabled = true
         };
 
+        // Job kiểu tải lên LUÔN bỏ qua *.part, kể cả khi người dùng không soạn
+        // bộ lọc nào.
+        //
+        // Vì sao bắt buộc: tải lên ghi ra "<tên>.part" rồi mới đổi tên. Nếu một
+        // lần sao lưu chạy đúng lúc đang tải thì rclone thấy file .part và đẩy
+        // bản ghi dở lên cloud như một bản sao lưu hợp lệ — hỏng âm thầm, chỉ lộ
+        // ra vào ngày cần khôi phục.
+        //
+        // Phải đứng TRƯỚC luật của người dùng: rclone dừng ở dòng khớp đầu tiên,
+        // nên một mẫu kết thúc bằng "+ **" sẽ nuốt mất luật này nếu nó nằm sau.
+        // Và không nhét vào FilterPresets: mẫu là thứ người dùng CHỌN, chọn mẫu
+        // khác thì mất bảo vệ mà không ai biết.
+        var filterContent = request.FilterContent;
+        if (!string.IsNullOrWhiteSpace(request.UploadFolder))
+        {
+            const string skipPartial = "# Tệp đang tải lên dở — không sao lưu\n- *.part\n";
+
+            filterContent = string.IsNullOrWhiteSpace(filterContent)
+                ? skipPartial + "\n# Còn lại lấy hết\n+ **\n"
+                : skipPartial + "\n" + filterContent;
+        }
+
         // Ghi file lọc trước khi lưu job: có nội dung thì job mới cần trỏ tới.
-        if (!string.IsNullOrWhiteSpace(request.FilterContent))
+        if (!string.IsNullOrWhiteSpace(filterContent))
         {
             var filter = await jobStore.WriteFilterFileAsync(
-                request.Source, request.FilterContent, cancellationToken);
+                source, filterContent, cancellationToken);
 
             if (filter.IsFailure)
             {
@@ -506,8 +547,18 @@ public sealed record UploadResultDto(int Received, int Duplicates, int Rejected,
 /// <param name="Content">Nội dung file lọc, ghi nguyên văn — .NET không parse.</param>
 public sealed record FilterPresetDto(string Name, string Description, string Content);
 
+/// <param name="Source">
+/// Thư mục nguồn trên máy chạy hub. Bỏ trống khi dùng <paramref name="UploadFolder"/>.
+/// </param>
 /// <param name="FilterContent">
 /// Nội dung file lọc. Để trống thì không sinh file, sao lưu toàn bộ thư mục.
+/// </param>
+/// <param name="UploadFolder">
+/// Tên thư mục đã tải lên (giá trị <c>folder</c> mà <c>/upload</c> trả về).
+///
+/// Có giá trị thì backend TỰ dựng <c>Source</c> từ <c>UploadRoot</c> — giao diện
+/// không gửi đường dẫn tuyệt đối, và đường dẫn cũng không rời khỏi máy chủ. Đây
+/// là chế độ dùng khi sao lưu thư mục của máy đang mở web.
 /// </param>
 public sealed record SaveJobRequest(
     string Name,
@@ -515,7 +566,8 @@ public sealed record SaveJobRequest(
     string Destination,
     bool Encrypted,
     bool DeleteExtra,
-    string? FilterContent);
+    string? FilterContent,
+    string? UploadFolder = null);
 
 /// <param name="FilterFile">Đường dẫn file lọc đã ghi, <c>null</c> nếu không có.</param>
 public sealed record SaveJobResultDto(string Name, string? FilterFile);

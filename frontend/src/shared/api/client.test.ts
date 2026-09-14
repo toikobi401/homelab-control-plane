@@ -101,6 +101,41 @@ describe('apiFetch', () => {
     )
   })
 
+  /**
+   * Tải thư mục lên (§5d) gửi FormData, không phải JSON. Hai lỗi rình sẵn ở đây,
+   * cả hai đều làm backend trả 400 mà nhìn request thì trông vẫn hợp lệ.
+   */
+  describe('FormData', () => {
+    it('gửi FormData nguyên vẹn, không JSON.stringify', async () => {
+      const spy = mockFetch(Response.json({ received: 1, duplicates: 0, rejected: 0 }))
+      const form = new FormData()
+      form.append('folder', 'tai-lieu')
+
+      await apiFetch('/api/backup/upload', { method: 'POST', body: form })
+
+      const call = spy.mock.calls.find(([url]) => urlOf(url) === '/api/backup/upload')
+      // Stringify một FormData cho "{}" — mọi tệp biến mất mà không có lỗi nào.
+      expect(call?.[1]?.body).toBe(form)
+    })
+
+    it('không tự đặt Content-Type cho FormData', async () => {
+      const spy = mockFetch(Response.json({ received: 0, duplicates: 0, rejected: 0 }))
+      const form = new FormData()
+      form.append('folder', 'tai-lieu')
+
+      await apiFetch('/api/backup/upload', { method: 'POST', body: form })
+
+      const call = spy.mock.calls.find(([url]) => urlOf(url) === '/api/backup/upload')
+      const headers = (call?.[1]?.headers ?? {}) as Record<string, string>
+
+      // Chỉ trình duyệt biết chuỗi boundary nó sinh ra. Khai đè Content-Type thì
+      // backend không tách nổi các phần và trả 400 khó lần ra.
+      expect(headers['Content-Type']).toBeUndefined()
+      // Nhưng CSRF token vẫn phải có: POST là request đổi trạng thái.
+      expect(headers['X-CSRF-Token']).toBe('tok-test')
+    })
+  })
+
   describe('CSRF (§6.5 mục 5)', () => {
     /** Giả lập backend: endpoint token trả token, các endpoint khác trả theo kịch bản. */
     function mockWithCsrf(handler: (url: string, init?: RequestInit) => Response) {

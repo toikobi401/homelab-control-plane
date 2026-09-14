@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Loader2, Lock, LockOpen } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { FolderUp, HardDrive, Loader2, Lock, LockOpen } from 'lucide-react'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,15 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { useFilterPresets, useRcloneRemotes, useSaveBackupJob } from '@/shared/api/backup'
+import {
+  useFilterPresets,
+  useRcloneRemotes,
+  useSaveBackupJob,
+  useUploadFolder,
+  type UploadEntry,
+  type UploadProgress,
+} from '@/shared/api/backup'
+import { formatBytes } from '@/shared/lib/time'
 
 import { FolderPicker } from './FolderPicker'
 
@@ -28,14 +36,83 @@ import { FolderPicker } from './FolderPicker'
 const DEFAULT_DESTINATION_PREFIX = 'HubBackup/'
 
 /**
+ * Hai cách chỉ ra thư mục nguồn.
+ *
+ * `upload` — chọn thư mục trên MÁY ĐANG MỞ WEB, trình duyệt đọc nội dung rồi đẩy
+ * lên hub. Đây là cách duy nhất sao lưu được thư mục của một máy khác: máy chủ
+ * không đọc được đĩa của máy khác, kể cả trong tailnet (§5d).
+ *
+ * `server` — thư mục có sẵn trên chính máy chạy hub. Vẫn giữ vì tải 200 GB qua
+ * HTTP lên đúng cái máy đang chứa nó là vô nghĩa.
+ */
+type SourceMode = 'upload' | 'server'
+
+/** Tên thư mục gốc + danh sách tệp bên trong, lấy từ hộp thoại chọn thư mục. */
+interface PickedFolder {
+  name: string
+  entries: UploadEntry[]
+  totalBytes: number
+}
+
+/**
+ * Đọc thứ `<input webkitdirectory>` trả về.
+ *
+ * `webkitRelativePath` có dạng `TênThưMục/con/tệp.jpg` — đoạn đầu là tên thư mục
+ * gốc, phải cắt bỏ vì nó đã thành tên thư mục trên hub rồi; giữ lại sẽ lồng
+ * thêm một cấp thừa.
+ */
+function readPickedFolder(files: FileList): PickedFolder | null {
+  if (files.length === 0) { return null }
+
+  const entries: UploadEntry[] = []
+  let rootName = ''
+  let totalBytes = 0
+
+  for (const file of files) {
+    const relative = file.webkitRelativePath || file.name
+    const segments = relative.split('/')
+
+    if (segments.length > 1) {
+      rootName ||= segments[0] ?? ''
+      entries.push({ file, relativePath: segments.slice(1).join('/') })
+    } else {
+      // Safari trên iOS không hỗ trợ chọn thư mục, rơi về chọn nhiều tệp —
+      // lúc đó không có cấu trúc thư mục nào để giữ.
+      entries.push({ file, relativePath: relative })
+    }
+
+    totalBytes += file.size
+  }
+
+  return { name: rootName || 'tai-len', entries, totalBytes }
+}
+
+/** Bỏ dấu tiếng Việt và ký tự lạ — tên thư mục cũng là tên job gợi ý. */
+function toSlug(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .replace(/[^a-zA-Z0-9-_]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+}
+
+/**
  * Tạo một công việc sao lưu: chọn thư mục, khai đích, soạn bộ lọc.
  *
  * Công việc lưu vào `backup-jobs.json` riêng, không ghi vào file cấu hình chính
  * của hub — xem docs/backup-setup.md để biết vì sao.
  */
 export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const [mode, setMode] = useState<SourceMode>('server')
   const [name, setName] = useState('')
   const [source, setSource] = useState<string | null>(null)
+  const [picked, setPicked] = useState<PickedFolder | null>(null)
+  const [progress, setProgress] = useState<UploadProgress | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+
   // Tách đích thành hai phần: remote chọn từ danh sách, đường dẫn gõ tay.
   // Gộp làm một ô khiến gõ nhầm hoa thường ("Hub:" thay vì "hub:") và job hỏng
   // lúc CHẠY, không phải lúc lưu — người dùng chỉ thấy "rclone thất bại (mã 1)".
@@ -49,6 +126,7 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
 
   const presets = useFilterPresets(open)
   const remotes = useRcloneRemotes(open)
+  const uploadFolder = useUploadFolder()
 
   // Danh sách rỗng nghĩa là không đọc được rclone.conf — rơi về ô gõ tự do thay
   // vì chặn người dùng vì lỗi của ta.
@@ -61,14 +139,18 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   const saveJob = useSaveBackupJob()
 
   function reset() {
+    setMode('server')
     setName('')
     setSource(null)
+    setPicked(null)
+    setProgress(null)
     setRemote('')
     setDestinationPath(DEFAULT_DESTINATION_PREFIX)
     setEncrypted(false)
     setDeleteExtra(false)
     setFilterContent('')
     saveJob.reset()
+    uploadFolder.reset()
   }
 
   function handleOpenChange(next: boolean) {
@@ -76,13 +158,59 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
     onOpenChange(next)
   }
 
-  function handleSubmit(event: React.FormEvent) {
+  function handlePick(event: React.ChangeEvent<HTMLInputElement>) {
+    const result = event.target.files ? readPickedFolder(event.target.files) : null
+    setPicked(result)
+
+    // Gợi ý tên job từ tên thư mục — sửa được, chỉ là đỡ phải gõ.
+    if (result && name.trim() === '') {
+      setName(toSlug(result.name))
+    }
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
+
+    const jobName = name.trim()
+
+    if (mode === 'upload') {
+      if (!picked) { return }
+
+      // Tải hết các lô TRƯỚC rồi mới tạo job: tạo job trước mà tải lỗi giữa
+      // chừng thì còn lại một job trỏ vào thư mục thiếu tệp — một bản sao lưu
+      // sai lệch mà không có gì báo.
+      const folderSlug = toSlug(picked.name) || jobName
+
+      try {
+        await uploadFolder.mutateAsync({
+          folder: folderSlug,
+          entries: picked.entries,
+          onProgress: setProgress,
+        })
+      } catch {
+        return // Lỗi đã nằm trong uploadFolder.error, hiện ở dưới.
+      }
+
+      saveJob.mutate(
+        {
+          name: jobName,
+          source: '',
+          uploadFolder: folderSlug,
+          destination: destination.trim(),
+          encrypted,
+          deleteExtra,
+          filterContent: filterContent.trim() === '' ? null : filterContent,
+        },
+        { onSuccess: () => handleOpenChange(false) },
+      )
+      return
+    }
+
     if (!source) { return }
 
     saveJob.mutate(
       {
-        name: name.trim(),
+        name: jobName,
         source,
         destination: destination.trim(),
         encrypted,
@@ -93,7 +221,9 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
     )
   }
 
-  const canSubmit = name.trim() !== '' && source !== null && destination.trim() !== ''
+  const hasSource = mode === 'upload' ? picked !== null : source !== null
+  const canSubmit = name.trim() !== '' && hasSource && destination.trim() !== ''
+  const busy = saveJob.isPending || uploadFolder.isPending
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -101,12 +231,17 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
         <DialogHeader>
           <DialogTitle>Công việc sao lưu mới</DialogTitle>
           <DialogDescription>
-            Chọn thư mục trên máy chạy hub và đích trên cloud.
+            Chọn thư mục cần sao lưu và đích trên cloud.
           </DialogDescription>
         </DialogHeader>
 
         {/* Thân cuộn được: cây thư mục và ô soạn bộ lọc dài hơn màn hình điện thoại. */}
-        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-4">
+        {/* void: handleSubmit là async, mà onSubmit mong đợi hàm trả về void.
+            Lỗi bên trong đã bắt sẵn và hiện qua uploadFolder.error/saveJob.error. */}
+        <form
+          onSubmit={(event) => void handleSubmit(event)}
+          className="flex min-h-0 flex-1 flex-col gap-4"
+        >
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
             <div className="space-y-1.5">
               <Label htmlFor="job-name">Tên</Label>
@@ -122,27 +257,91 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
               </p>
             </div>
 
+            {/* Hai chế độ nguồn. Máy chủ không đọc được đĩa máy khác, nên muốn
+                sao lưu thư mục của máy đang mở web thì phải tải nội dung lên. */}
             <div className="space-y-1.5">
-              <Label htmlFor="job-source">Thư mục nguồn</Label>
+              <span className="text-sm font-medium">Thư mục nguồn</span>
 
-              {/* Ô nhập đứng trước cây thư mục: biết đường dẫn rồi thì dán vào
-                  là xong, nhanh hơn bấm qua nhiều cấp. Ctrl+L rồi Ctrl+C trong
-                  File Explorer là có sẵn đường dẫn đầy đủ. */}
-              <Input
-                id="job-source"
-                value={source ?? ''}
-                onChange={(event) => setSource(event.target.value || null)}
-                placeholder="D:\Du lieu\anh"
-                autoComplete="off"
-                spellCheck={false}
-                className="font-mono text-xs"
-              />
-              <p className="text-xs text-muted-foreground">
-                Gõ hoặc dán đường dẫn, hoặc chọn trong cây bên dưới.
-              </p>
-
-              <FolderPicker value={source} onChange={setSource} />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <ModeButton
+                  active={mode === 'upload'}
+                  onClick={() => setMode('upload')}
+                  icon={<FolderUp className="size-4" aria-hidden="true" />}
+                  title="Tải lên từ máy này"
+                  hint="Chọn thư mục trên máy đang mở web"
+                />
+                <ModeButton
+                  active={mode === 'server'}
+                  onClick={() => setMode('server')}
+                  icon={<HardDrive className="size-4" aria-hidden="true" />}
+                  title="Có sẵn trên máy chạy hub"
+                  hint="Không tốn băng thông"
+                />
+              </div>
             </div>
+
+            {mode === 'upload' ? (
+              <div className="space-y-2">
+                <input
+                  ref={fileInput}
+                  type="file"
+                  webkitdirectory=""
+                  directory=""
+                  multiple
+                  className="hidden"
+                  aria-label="Chọn thư mục để tải lên"
+                  onChange={handlePick}
+                />
+
+                <Button type="button" variant="outline" onClick={() => fileInput.current?.click()}>
+                  <FolderUp className="size-4" aria-hidden="true" />
+                  {picked ? 'Chọn thư mục khác' : 'Chọn thư mục'}
+                </Button>
+
+                {picked ? (
+                  <p className="text-sm">
+                    <span className="font-medium">{picked.name}</span>
+                    <span className="text-muted-foreground">
+                      {' · '}
+                      {picked.entries.length} tệp · {formatBytes(picked.totalBytes)}
+                    </span>
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Chọn cả thư mục; các thư mục con bên trong giữ nguyên cấu trúc.
+                  </p>
+                )}
+
+                {progress ? <UploadBar progress={progress} /> : null}
+
+                <p className="text-xs text-muted-foreground">
+                  Tệp tải lên nằm lại trên máy chạy hub, nên lần sau chỉ tải phần mới. Đóng cửa sổ
+                  giữa chừng thì phần đã tải vẫn giữ — chọn lại đúng thư mục đó để tiếp tục.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="job-source">Đường dẫn trên máy chạy hub</Label>
+
+                {/* Ô nhập đứng trước cây thư mục: biết đường dẫn rồi thì dán vào
+                    là xong, nhanh hơn bấm qua nhiều cấp. Ctrl+L rồi Ctrl+C trong
+                    File Explorer là có sẵn đường dẫn đầy đủ. */}
+                <Input
+                  id="job-source"
+                  value={source ?? ''}
+                  onChange={(event) => setSource(event.target.value || null)}
+                  placeholder="D:\Du lieu\anh"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="font-mono text-xs"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Gõ hoặc dán đường dẫn, hoặc chọn trong cây bên dưới.
+                </p>
+
+                <FolderPicker value={source} onChange={setSource} />
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label htmlFor="job-destination">Đích trên cloud</Label>
@@ -274,6 +473,12 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             </div>
           </div>
 
+          {uploadFolder.isError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{uploadFolder.error.message}</AlertDescription>
+            </Alert>
+          ) : null}
+
           {saveJob.isError ? (
             <Alert variant="destructive">
               <AlertDescription>{saveJob.error.message}</AlertDescription>
@@ -284,11 +489,11 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
               Huỷ
             </Button>
-            <Button type="submit" disabled={!canSubmit || saveJob.isPending}>
-              {saveJob.isPending ? (
+            <Button type="submit" disabled={!canSubmit || busy}>
+              {busy ? (
                 <>
                   <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                  Đang lưu
+                  {uploadFolder.isPending ? 'Đang tải lên' : 'Đang lưu'}
                 </>
               ) : (
                 'Tạo công việc'
@@ -298,5 +503,60 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function ModeButton({
+  active,
+  onClick,
+  icon,
+  title,
+  hint,
+}: {
+  active: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  title: string
+  hint: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={
+        'flex items-start gap-2 rounded-md border p-2.5 text-left text-sm ' +
+        (active ? 'border-primary bg-accent/50' : 'hover:bg-accent/30')
+      }
+    >
+      <span className="mt-0.5 shrink-0 text-muted-foreground">{icon}</span>
+      <span className="min-w-0">
+        <span className="block font-medium">{title}</span>
+        <span className="block text-xs text-muted-foreground">{hint}</span>
+      </span>
+    </button>
+  )
+}
+
+/**
+ * Tiến trình theo BYTE, không theo số tệp: 3000 ảnh thumbnail và 3 video dài cho
+ * cảm giác rất khác nhau nếu đếm theo tệp.
+ */
+function UploadBar({ progress }: { progress: UploadProgress }) {
+  const percent = progress.totalBytes === 0
+    ? 0
+    : Math.round((progress.sentBytes / progress.totalBytes) * 100)
+
+  return (
+    <div className="space-y-1">
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className="h-full bg-primary transition-[width]" style={{ width: `${percent}%` }} />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {percent}% · {formatBytes(progress.sentBytes)} / {formatBytes(progress.totalBytes)}
+        {progress.duplicates > 0 ? ` · ${progress.duplicates} tệp đã có` : ''}
+        {progress.rejected > 0 ? ` · ${progress.rejected} tệp bị bỏ qua` : ''}
+      </p>
+    </div>
   )
 }

@@ -14,9 +14,14 @@ import { useBrowseDirectories } from '@/shared/api/backup'
  * Đi kèm ô nhập đường dẫn ở `JobDialog`, không thay thế nó: biết đường dẫn rồi
  * thì dán vào nhanh hơn, còn cây thư mục dùng khi chưa nhớ rõ.
  *
- * Vì sao không dùng `showDirectoryPicker` của trình duyệt: nó chọn thư mục trên
- * MÁY ĐANG MỞ TRÌNH DUYỆT (có thể là điện thoại), không phải máy chạy hub — và
- * vì bảo mật nó không trả đường dẫn tuyệt đối, thứ rclone bắt buộc phải có.
+ * Vì sao không dùng `showDirectoryPicker` **ở đây**: nó chọn thư mục trên MÁY
+ * ĐANG MỞ TRÌNH DUYỆT, không phải máy chạy hub — và vì bảo mật nó không trả
+ * đường dẫn tuyệt đối, thứ rclone bắt buộc phải có cho chế độ này.
+ *
+ * ⚠️ Lý do đó CHỈ đúng cho chế độ "thư mục có sẵn trên máy chạy hub". Muốn sao
+ * lưu thư mục của máy đang mở web thì có chế độ tải lên riêng: trình duyệt đọc
+ * nội dung thư mục rồi đẩy lên hub, nên không cần đường dẫn tuyệt đối. Đừng đọc
+ * đoạn trên rồi kết luận cả tính năng tải lên là bất khả thi.
  */
 export function FolderPicker({
   value,

@@ -448,6 +448,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/backup/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Nhận một lô tệp người dùng tải lên từ trình duyệt */
+        post: operations["UploadBackupFolder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/backup/remotes": {
         parameters: {
             query?: never;
@@ -643,6 +660,7 @@ export interface components {
             encrypted: boolean;
             deleteExtra: boolean;
             filterContent: null | string;
+            uploadFolder?: null | string;
         };
         SaveJobResultDto: {
             name: string;
@@ -663,6 +681,15 @@ export interface components {
         };
         SetPasswordRequest: {
             password: string;
+        };
+        UploadResultDto: {
+            /** Format: int32 */
+            received: number | string;
+            /** Format: int32 */
+            duplicates: number | string;
+            /** Format: int32 */
+            rejected: number | string;
+            folder: string;
         };
     };
     responses: never;
@@ -864,6 +891,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DirectoryListingDto"];
+                };
+            };
+        };
+    };
+    UploadBackupFolder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadResultDto"];
                 };
             };
         };

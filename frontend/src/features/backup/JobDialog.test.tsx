@@ -112,7 +112,7 @@ describe('JobDialog', () => {
     renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
 
     await userEvent.type(screen.getByLabelText('Tên'), 'anh-cu')
-    await userEvent.type(screen.getByLabelText('Thư mục nguồn'), 'E:\\Anh\\2026')
+    await userEvent.type(screen.getByLabelText('Đường dẫn trên máy chạy hub'), 'E:\\Anh\\2026')
     await userEvent.selectOptions(await screen.findByLabelText('Remote'), 'hub')
     await userEvent.clear(screen.getByLabelText('Đích trên cloud'))
     await userEvent.type(screen.getByLabelText('Đích trên cloud'), 'backup/anh-cu')
@@ -132,7 +132,7 @@ describe('JobDialog', () => {
     renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
     await userEvent.click(await screen.findByText('D:\\Du lieu'))
 
-    expect(screen.getByLabelText('Thư mục nguồn')).toHaveValue('D:\\Du lieu')
+    expect(screen.getByLabelText('Đường dẫn trên máy chạy hub')).toHaveValue('D:\\Du lieu')
   })
 
   /**
@@ -274,6 +274,138 @@ describe('JobDialog', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Tạo công việc' }))
 
     expect(await screen.findByText(/không nằm trong phạm vi/)).toBeInTheDocument()
+  })
+
+  /**
+   * Chế độ tải lên (§5d) — thứ duy nhất sao lưu được thư mục của MÁY KHÁC, vì
+   * máy chủ không đọc được đĩa máy khác kể cả trong tailnet.
+   */
+  describe('tải thư mục từ máy đang mở web', () => {
+    /** Giả lập thứ `<input webkitdirectory>` trả về: File có webkitRelativePath. */
+    function fileWithPath(path: string, content: string): File {
+      const file = new File([content], path.split('/').pop() ?? path)
+      Object.defineProperty(file, 'webkitRelativePath', { value: path })
+      return file
+    }
+
+    async function pickFolder(files: File[]) {
+      await userEvent.click(screen.getByRole('button', { name: /Tải lên từ máy này/ }))
+      const input = screen.getByLabelText('Chọn thư mục để tải lên')
+      await userEvent.upload(input, files)
+    }
+
+    function uploadCalls(fetchMock: ReturnType<typeof stubApi>) {
+      return fetchMock.mock.calls.filter(([input]) =>
+        requestUrl(input).includes('/api/backup/upload'),
+      )
+    }
+
+    it('gửi multipart kèm đường dẫn tương đối, giữ cấu trúc thư mục con', async () => {
+      const fetchMock = stubApi()
+
+      renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
+      await pickFolder([
+        fileWithPath('Anh/2026/img1.jpg', 'mot'),
+        fileWithPath('Anh/ghi-chu.txt', 'hai'),
+      ])
+
+      await userEvent.selectOptions(await screen.findByLabelText('Remote'), 'hub')
+      await userEvent.click(screen.getByRole('button', { name: 'Tạo công việc' }))
+
+      await waitFor(() => expect(uploadCalls(fetchMock).length).toBeGreaterThan(0))
+
+      const body = uploadCalls(fetchMock)[0]?.[1]?.body
+      // Stringify một FormData cho "{}" — mọi tệp biến mất mà không có lỗi nào.
+      expect(body).toBeInstanceOf(FormData)
+
+      const form = body as FormData
+      expect(form.get('folder')).toBe('anh')
+      // Đoạn đầu ("Anh/") đã bị cắt: nó thành tên thư mục trên hub rồi, giữ lại
+      // sẽ lồng thêm một cấp thừa.
+      expect(form.getAll('paths')).toEqual(['2026/img1.jpg', 'ghi-chu.txt'])
+    })
+
+    /**
+     * Tạo job TRƯỚC rồi tải mà lỗi giữa chừng thì còn lại một job trỏ vào thư
+     * mục thiếu tệp — bản sao lưu sai lệch mà không có gì báo.
+     */
+    it('chỉ tạo job sau khi tải xong, và gửi tên thư mục chứ không phải đường dẫn', async () => {
+      const fetchMock = stubApi()
+
+      renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
+      await pickFolder([fileWithPath('Anh/img.jpg', 'x')])
+
+      await userEvent.selectOptions(await screen.findByLabelText('Remote'), 'hub')
+      await userEvent.click(screen.getByRole('button', { name: 'Tạo công việc' }))
+
+      await waitFor(() => expect(savedBody(fetchMock)).toBeTruthy())
+
+      const order = fetchMock.mock.calls
+        .map(([input], index) => ({ url: requestUrl(input), index }))
+        .filter((call) => call.url.includes('/api/backup/upload') || call.url.includes('/api/backup/jobs'))
+
+      expect(order[0]?.url).toContain('/upload')
+      expect(order.at(-1)?.url).toContain('/jobs')
+
+      // Đường dẫn tuyệt đối không rời khỏi máy chủ: chỉ gửi TÊN thư mục, backend
+      // tự dựng Source từ UploadRoot.
+      expect(savedBody(fetchMock)).toMatchObject({ uploadFolder: 'anh', source: '' })
+    })
+
+    it('tải lỗi thì không tạo job và hiện lỗi', async () => {
+      const fetchMock = vi.fn<typeof fetch>((input) => {
+        const url = requestUrl(input)
+        if (url.includes('/api/antiforgery/token')) {
+          return Promise.resolve(Response.json({ token: 't', headerName: 'X-CSRF-Token' }))
+        }
+        if (url.includes('/api/backup/remotes')) return Promise.resolve(Response.json(remotes))
+        if (url.includes('/api/backup/presets')) return Promise.resolve(Response.json(presets))
+        if (url.includes('/api/backup/browse')) return Promise.resolve(Response.json(roots))
+        if (url.includes('/api/backup/upload')) {
+          return Promise.resolve(Response.json({ detail: 'Hết dung lượng đĩa.' }, { status: 400 }))
+        }
+        return Promise.resolve(Response.json({}))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
+      await pickFolder([fileWithPath('Anh/img.jpg', 'x')])
+
+      await userEvent.selectOptions(await screen.findByLabelText('Remote'), 'hub')
+      await userEvent.click(screen.getByRole('button', { name: 'Tạo công việc' }))
+
+      expect(await screen.findByText(/Hết dung lượng đĩa/)).toBeInTheDocument()
+
+      const jobCalls = fetchMock.mock.calls.filter(
+        ([input, init]) =>
+          (init?.method ?? 'GET') === 'POST' && requestUrl(input).includes('/api/backup/jobs'),
+      )
+      expect(jobCalls).toHaveLength(0)
+    })
+
+    it('gợi ý tên job từ tên thư mục đã chọn', async () => {
+      stubApi()
+
+      renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
+      await pickFolder([fileWithPath('Tài liệu/a.txt', 'x')])
+
+      // Bỏ dấu và hạ chữ thường: tên job chỉ nhận chữ, số, gạch ngang, gạch dưới.
+      expect(screen.getByLabelText('Tên')).toHaveValue('tai-lieu')
+    })
+
+    it('vẫn tạo được job từ thư mục có sẵn trên máy chạy hub', async () => {
+      const fetchMock = stubApi()
+
+      renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
+      await fillRequiredFields()
+      await userEvent.click(screen.getByRole('button', { name: 'Tạo công việc' }))
+
+      await waitFor(() => expect(savedBody(fetchMock)).toBeTruthy())
+
+      // Chế độ cũ không đụng tới đường tải lên.
+      expect(uploadCalls(fetchMock)).toHaveLength(0)
+      expect(savedBody(fetchMock)).toMatchObject({ source: 'D:\\Du lieu' })
+    })
   })
 
   it('đóng hộp thoại sau khi lưu xong', async () => {

@@ -1014,15 +1014,22 @@ giới hạn có thể lách bằng cấu hình.
 Nếu sau này thấy bất tiện thật sự, quay lại đánh giá trả phí Apple Developer — nhưng đó là quyết
 định mới, không suy luận ngược từ mục này.
 
-### Endpoint upload ảnh — khác hẳn endpoint chạy job
+### Endpoint upload — khác hẳn endpoint chạy job
 
-`/api/backup/{jobName}/run` chạy một job đã cấu hình sẵn (thư mục cố định trên máy chủ). Ảnh từ
-điện thoại **không** đi qua đường đó — ảnh đến từ file người dùng/app gửi lên qua HTTP, không phải
-một thư mục nguồn tĩnh. Cần endpoint riêng:
+`/api/backup/{jobName}/run` chạy một job đã cấu hình sẵn (thư mục cố định trên máy chủ). File tải
+lên **không** đi qua đường đó — nó đến từ file người dùng/app gửi lên qua HTTP, không phải một thư
+mục nguồn tĩnh. Cần endpoint riêng:
 
 ```
-POST /api/backup/photos/upload
+POST /api/backup/upload
 ```
+
+> **Đã làm xong (2026-09-14).** Mục này viết khi use case duy nhất là ảnh điện thoại, nên tên cũ là
+> `/api/backup/photos/upload`. Lúc dựng thật thì phạm vi rộng hơn: nó nhận **thư mục bất kỳ từ máy
+> đang mở web**, không riêng ảnh — đó mới là thứ giải được bài toán "sao lưu thư mục của một máy
+> khác trong tailnet", vì máy chủ không đọc được đĩa của máy khác. Tên `photos` mô tả sai và nằm
+> trong URL nên khó sửa sau, vì thế đổi thành `/api/backup/upload`. Mọi ràng buộc bên dưới giữ
+> nguyên. App Android sau này gọi đúng endpoint này.
 
 - Yêu cầu đăng nhập, giống mọi endpoint khác (§6.5).
 - Nhận multipart file, ghi vào một thư mục đích cấu hình sẵn trên máy chủ (ví dụ
@@ -1052,9 +1059,10 @@ Giống nguyên tắc đã áp dụng ở §5c:
 
 ### Thứ tự làm
 
-1. Filter file (`FilterFile` + `--filter-from`) — mở rộng nhỏ trên code PC đã có, làm trước.
-2. Endpoint `/api/backup/photos/upload` + trang web upload thủ công — chạy được cho cả Android lẫn
-   iPhone ngay, không cần app.
+1. ✅ **Xong** — Filter file (`FilterFile` + `--filter-from`), mở rộng nhỏ trên code PC đã có.
+2. ✅ **Xong (2026-09-14)** — Endpoint `/api/backup/upload` + chế độ "tải lên từ máy này" trong
+   `JobDialog`. Chạy được cho mọi máy có trình duyệt: desktop, Android, iPhone (iOS Safari rơi về
+   chọn nhiều tệp thay vì cả thư mục). Dùng `<input webkitdirectory>`.
 3. App React Native cho Android (development build, WorkManager nền) — làm sau, vì nó là hạng mục
    lớn nhất (codebase thứ ba, build pipeline riêng) và web upload đã che được nhu cầu tối thiểu.
 
@@ -1366,6 +1374,15 @@ lý do.
 | 2026-09-10 | **Không build app cho iOS.** iPhone dùng web upload thủ công hoặc Expo Go thủ công (không chạy nền) | Điều tra xác nhận: Expo Go đã cài sẵn không chạy nền được trên iOS (tài liệu chính thức Expo — *"Background Fetch is not enabled in the iOS Expo Go app"*). Development build cho iPhone vật lý bắt buộc $99/năm Apple Developer Program, không có cách né cho "chỉ dùng cá nhân". Chi phí không đáng cho một tính năng hẹp — quyết định của người dùng sau khi nghe đủ dữ kiện |
 | 2026-09-10 | Ảnh điện thoại đi qua endpoint upload riêng (`/api/backup/photos/upload`), không qua `{jobName}/run` | `run` chạy job đã cấu hình sẵn với `Source` tĩnh; ảnh đến từ file client gửi lên, không phải thư mục cố định trên máy chủ. Sau khi nhận, thư mục đích có thể làm `Source` của một job thường — tái dùng luồng rclone đã có, không viết đường lên cloud thứ hai |
 | 2026-09-10 | App Android gọi hub qua **địa chỉ tailnet**, không qua Cloudflare Tunnel | Ảnh cá nhân là dữ liệu nhạy cảm nhất trong hệ thống; ưu tiên đường ngắn nhất, không qua bên thứ ba khi có thể — đúng tinh thần §4a |
+| 2026-09-14 | Đổi `/api/backup/photos/upload` → **`/api/backup/upload`** | Nay nhận cả thư mục tài liệu từ desktop, không riêng ảnh điện thoại. Tên `photos` mô tả sai thứ nó làm, và tên nằm trong URL nên khó sửa về sau. App Android vẫn gọi đúng endpoint này |
+| 2026-09-14 | Thư mục tải lên **ở lại trên hub** và trở thành `Source` của một job thường — hub không phải ống dẫn đi thẳng | Giữ file lại thì lần chạy sau rclone chỉ đồng bộ phần đổi; xoá đi thì mỗi lần sao lưu phải tải lại toàn bộ từ máy nguồn. Cũng giữ đúng "một đường lên cloud duy nhất" của §5d |
+| 2026-09-14 | Dùng `<input webkitdirectory>`, **KHÔNG** dùng `showDirectoryPicker` | Lý do khác hẳn dòng 2026-09-13 ở trên (dòng đó nói về việc chọn thư mục TRÊN MÁY CHẠY HUB, cần đường dẫn tuyệt đối — không áp dụng cho tải lên). Lý do ở đây: mỗi máy trong tailnet tự mở web UI của nó, nên phải chạy trên mọi trình duyệt; `showDirectoryPicker` chỉ có trên Chromium, chết trên Firefox và toàn bộ Safari |
+| 2026-09-14 | **Giữ song song hai chế độ nguồn** (tải lên / thư mục có sẵn trên hub), không di cư | Tải 200 GB qua HTTP lên đúng cái máy đang chứa nó là vô nghĩa; job khai tay trong `appsettings` cũng vẫn dùng đường dẫn máy chủ. Chế độ tải lên kết thúc bằng việc tạo ra đầu vào cho chế độ kia, nên vẫn chỉ một đường lên cloud |
+| 2026-09-14 | `Backup:UploadRoot` (mặc định `D:\HubUploads`) là **vùng miễn trừ** của `BlockedPaths` | Mặc định chặn cả thư mục dữ liệu hub; trỏ `UploadRoot` vào trong đó mà không miễn trừ thì `SaveJobAsync` từ chối chính thư mục hub vừa tạo, và tính năng chết đúng ở bước biến thư mục đã tải lên thành job. Miễn trừ chỉ mở đúng nhánh đó — `hub.db` và `appsettings.Production.json` vẫn bị chặn, có test riêng khẳng định điều này |
+| 2026-09-14 | Ghi ra `<tên>.part` rồi đổi tên; job kiểu tải lên **luôn** lọc bỏ `*.part` | Request đứt giữa chừng mà ghi thẳng vào tên thật sẽ để lại file cụt trông y như file thật, rồi rclone đẩy nguyên bản cụt đó lên cloud — hỏng âm thầm, chỉ lộ ra vào ngày cần khôi phục. Luật lọc đặt TRƯỚC luật người dùng vì rclone dừng ở dòng khớp đầu tiên; và không nhét vào `FilterPresets` vì mẫu là thứ người dùng CHỌN, chọn mẫu khác thì mất bảo vệ mà không ai biết |
+| 2026-09-14 | Chống trùng bằng **SHA-256 tính trong lúc stream**, so kích thước trước | Nhờ đó chọn lại đúng thư mục cũ chỉ tải phần mới, không tải lại tất cả. So cỡ file trước vì gần như miễn phí; chỉ khi bằng cỡ mới hash bản cũ |
+| 2026-09-14 | Endpoint upload đọc bằng `MultipartReader`, **không** dùng `IFormFile`/`Request.Form` | Cả ba dạng form binding đệm toàn bộ body vào RAM hoặc file tạm TRƯỚC khi handler chạy — với thư mục hàng GB là không chấp nhận được. Đã kiểm chứng bằng HTTP thật rằng antiforgery token gửi qua header KHÔNG làm ASP.NET Core đọc form (rủi ro lớn nhất của thiết kế này) |
+| 2026-09-14 | Logic nhận file đặt ở `Hub.Core` (`UploadReceiver`), không viết trong lambda của minimal API | `Hub.Api.Tests` chưa có `WebApplicationFactory` — không có test HTTP nào trong repo. Nhét logic vào endpoint là tự làm cho nó không test được mà không thêm package mới |
 
 ---
 

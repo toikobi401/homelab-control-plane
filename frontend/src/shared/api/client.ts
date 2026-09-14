@@ -127,10 +127,15 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     await ensureCsrfToken()
   }
 
+  // FormData đi thẳng, không qua JSON: dùng để tải thư mục lên (§5d). Đặt tay
+  // Content-Type cho multipart là hỏng chắc chắn — chỉ trình duyệt biết chuỗi
+  // boundary nó sinh ra, khai đè lên thì backend không tách nổi các phần.
+  const isFormData = body instanceof FormData
+
   const send = async (): Promise<Response> => {
     const headers: Record<string, string> = {}
 
-    if (body !== undefined) {
+    if (body !== undefined && !isFormData) {
       headers['Content-Type'] = 'application/json'
     }
 
@@ -143,7 +148,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
       signal,
       credentials: 'include',
       headers: Object.keys(headers).length === 0 ? undefined : headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
     })
   }
 
