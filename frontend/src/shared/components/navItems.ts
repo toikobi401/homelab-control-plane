@@ -1,4 +1,6 @@
-import { Activity, BookOpen, Power, Server, ShieldCheck, Upload } from 'lucide-react'
+// BookOpen tạm không dùng — mục "Truyện" đang bị ẩn ở dưới. Bỏ dấu chú thích ở
+// cả hai chỗ là hiện lại.
+import { Activity, /* BookOpen, */ Power, Server, ShieldCheck, Upload } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavItem {
@@ -29,7 +31,10 @@ export const navItems: readonly NavItem[] = [
   // màn hình, nên năng lực 4 coi như được phục vụ luôn ở đây (§2.3: tái sử
   // dụng thay vì tự viết).
   { to: '/remote', label: 'Điều khiển', icon: Power },
-  { to: '/manga', label: 'Truyện', icon: BookOpen },
+  // Tạm ẩn khỏi điều hướng — năng lực 5 chưa xong, để lộ mục dẫn tới một trang
+  // trống thì người dùng tưởng hỏng. Route /manga vẫn còn trong App.tsx nên gõ
+  // thẳng đường dẫn vẫn vào được; bỏ dấu chú thích dòng dưới là hiện lại.
+  // { to: '/manga', label: 'Truyện', icon: BookOpen },
   // Quản lý phiên là việc thỉnh thoảng mới làm — không xứng một ô trong năm ô
   // của thanh dưới cùng, nhưng sidebar desktop thì rộng chỗ.
   { to: '/sessions', label: 'Phiên', icon: ShieldCheck, desktopOnly: true },

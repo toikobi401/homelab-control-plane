@@ -72,6 +72,29 @@ describe('apiFetch', () => {
     expect((error as ApiError).isUnauthorized).toBe(true)
   })
 
+  /**
+   * Lỗi đã gặp thật: tạo công việc sao lưu với đích thiếu tiền tố remote thì
+   * backend trả detail "Đích phải có dạng remote:đường/dẫn…", nhưng giao diện
+   * chỉ hiện "Bad Request" — người dùng không biết phải sửa gì.
+   *
+   * `TypedResults.Problem(detail: …)` đặt câu cụ thể vào `detail` và để ASP.NET
+   * tự điền `title` bằng tên chung của mã HTTP. Nên `detail` phải thắng.
+   */
+  it('lấy detail trước title — title chỉ là tên chung của mã HTTP', async () => {
+    mockFetch(
+      Response.json(
+        { title: 'Bad Request', detail: 'Đích phải có dạng remote:đường/dẫn.' },
+        { status: 400 },
+      ),
+    )
+
+    const error = await apiFetch('/api/backup/jobs', { method: 'POST', body: {} }).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toMatchObject({ message: 'Đích phải có dạng remote:đường/dẫn.' })
+  })
+
   it('rơi về thông báo theo mã HTTP khi body lỗi không phải JSON', async () => {
     // Xảy ra thật khi proxy chết: nó trả trang HTML, không phải ProblemDetails.
     mockFetch(new Response('<html>502 Bad Gateway</html>', { status: 502 }))

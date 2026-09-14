@@ -257,7 +257,9 @@ describe('JobDialog', () => {
     await fillRequiredFields()
     await userEvent.click(screen.getByRole('button', { name: 'Tạo công việc' }))
 
-    expect(await screen.findByText('Conflict')).toBeInTheDocument()
+    // `detail` mới là câu nói rõ chuyện gì; `title` chỉ là tên chung của mã HTTP
+    // do ASP.NET tự điền. Hiện "Conflict" thì người dùng không biết phải sửa gì.
+    expect(await screen.findByText(/Đã có công việc cùng tên/)).toBeInTheDocument()
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
   })
 
@@ -342,7 +344,10 @@ describe('JobDialog', () => {
 
       const order = fetchMock.mock.calls
         .map(([input], index) => ({ url: requestUrl(input), index }))
-        .filter((call) => call.url.includes('/api/backup/upload') || call.url.includes('/api/backup/jobs'))
+        .filter(
+          (call) =>
+            call.url.includes('/api/backup/upload') || call.url.includes('/api/backup/jobs'),
+        )
 
       expect(order[0]?.url).toContain('/upload')
       expect(order.at(-1)?.url).toContain('/jobs')

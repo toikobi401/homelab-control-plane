@@ -40,7 +40,11 @@ async function readErrorMessage(response: Response): Promise<string> {
   try {
     const body: unknown = await response.json()
     if (isProblemDetails(body)) {
-      const message = body.title ?? body.detail
+      // `detail` TRƯỚC `title`. `TypedResults.Problem(detail: …)` đặt câu cụ thể
+      // vào `detail`, còn `title` để ASP.NET tự điền — và nó điền tên chung của
+      // mã HTTP ("Bad Request"). Lấy `title` trước là vứt đúng câu cần đọc:
+      // "Đích phải có dạng remote:đường/dẫn…" biến thành "Bad Request".
+      const message = body.detail ?? body.title
       if (typeof message === 'string' && message.length > 0) {
         return message
       }
