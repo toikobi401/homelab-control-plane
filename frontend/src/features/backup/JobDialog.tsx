@@ -19,6 +19,15 @@ import { useFilterPresets, useRcloneRemotes, useSaveBackupJob } from '@/shared/a
 import { FolderPicker } from './FolderPicker'
 
 /**
+ * Thư mục mẹ trên cloud cho mọi công việc sao lưu.
+ *
+ * Gom lại một chỗ thay vì rải ra gốc Drive lẫn với thư mục cá nhân. Dữ liệu đã
+ * mã hoá nằm ở `HubBackup/encrypted` — đó là cấu hình của remote crypt trong
+ * rclone.conf, không phải thứ giao diện đặt.
+ */
+const DEFAULT_DESTINATION_PREFIX = 'HubBackup/'
+
+/**
  * Tạo một công việc sao lưu: chọn thư mục, khai đích, soạn bộ lọc.
  *
  * Công việc lưu vào `backup-jobs.json` riêng, không ghi vào file cấu hình chính
@@ -31,7 +40,9 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   // Gộp làm một ô khiến gõ nhầm hoa thường ("Hub:" thay vì "hub:") và job hỏng
   // lúc CHẠY, không phải lúc lưu — người dùng chỉ thấy "rclone thất bại (mã 1)".
   const [remote, setRemote] = useState('')
-  const [destinationPath, setDestinationPath] = useState('')
+  // Mọi job mặc định nằm dưới một thư mục mẹ trên Drive, thay vì rải ra gốc
+  // lẫn với thư mục cá nhân. Người dùng vẫn sửa được nếu muốn chỗ khác.
+  const [destinationPath, setDestinationPath] = useState(DEFAULT_DESTINATION_PREFIX)
   const [encrypted, setEncrypted] = useState(false)
   const [deleteExtra, setDeleteExtra] = useState(false)
   const [filterContent, setFilterContent] = useState('')
@@ -53,7 +64,7 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
     setName('')
     setSource(null)
     setRemote('')
-    setDestinationPath('')
+    setDestinationPath(DEFAULT_DESTINATION_PREFIX)
     setEncrypted(false)
     setDeleteExtra(false)
     setFilterContent('')
@@ -158,7 +169,7 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
                     id="job-destination"
                     value={destinationPath}
                     onChange={(event) => setDestinationPath(event.target.value)}
-                    placeholder="backup/tai-lieu"
+                    placeholder="HubBackup/tai-lieu"
                     autoComplete="off"
                     spellCheck={false}
                   />
@@ -168,7 +179,7 @@ export function JobDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
                   id="job-destination"
                   value={destinationPath}
                   onChange={(event) => setDestinationPath(event.target.value)}
-                  placeholder="hub:backup/tai-lieu"
+                  placeholder="hub:HubBackup/tai-lieu"
                   autoComplete="off"
                   spellCheck={false}
                 />

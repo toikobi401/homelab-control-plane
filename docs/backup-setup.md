@@ -166,7 +166,7 @@ rclone config
 | `n/s/q>` | `n` |
 | `name>` | `hub-crypt` |
 | `Storage>` | `16` (crypt) |
-| `remote>` | `hub:hub-data-encrypted` |
+| `remote>` | `hub:HubBackup/encrypted` |
 | `filename_encryption>` | `1` (standard) |
 | `directory_name_encryption>` | `1` (true) |
 | `Password` | `y` → tự đặt (KHÔNG dùng lại mật khẩu hub) |
@@ -178,13 +178,50 @@ rclone config
 phục. Lưu chúng ở nơi khác với máy này — lưu chỉ trên chính máy đang sao lưu thì
 bản sao lưu vô dụng đúng lúc cần nhất.
 
+### Mọi thứ nằm dưới một thư mục mẹ
+
+Gốc Google Drive là chỗ chung với thư mục cá nhân. Để hub không rải dữ liệu ra
+đó, mọi sản phẩm sao lưu nằm dưới **một** thư mục mẹ:
+
+```
+HubBackup/
+├── encrypted/      ← remote crypt trỏ vào đây (ciphertext)
+└── <tên job>/      ← job nguyên bản
+```
+
+Giao diện điền sẵn `HubBackup/` vào ô đích khi tạo job mới; sửa được nếu muốn
+chỗ khác.
+
+⚠️ **Vị trí của `encrypted/` do `rclone.conf` quyết định, không phải hub.** Nó là
+dòng `remote =` của remote crypt. Đổi chỗ thì phải làm hai việc, đúng thứ tự:
+
+```powershell
+# 1. Chuyển dữ liệu TRƯỚC
+rclone move hub:cho-cu hub:HubBackup/encrypted
+
+# 2. Rồi mới sửa rclone.conf: remote = hub:HubBackup/encrypted
+# 3. Chép lại sang hồ sơ hệ thống cho service (xem mục bên dưới)
+```
+
+Sửa cấu hình trước khi chuyển dữ liệu thì remote trỏ vào chỗ rỗng và bản sao lưu
+cũ không đọc lại được.
+
+Kiểm chứng sau khi chuyển — phải ra đúng số file như trước:
+
+```powershell
+rclone ls hub-crypt:hub-data
+```
+
+Dung lượng ciphertext **lớn hơn** plaintext khoảng **48 byte mỗi file** — đó là
+header của rclone crypt, không phải sai lệch dữ liệu.
+
 ### Kiểm chứng mã hoá có thật không
 
 Đừng tin, hãy nhìn. So sánh cùng dữ liệu qua hai remote:
 
 ```powershell
 rclone ls hub-crypt:hub-data        # qua crypt: thấy tên file thật
-rclone lsf hub:hub-data-encrypted -R --files-only   # thô: đúng thứ Google thấy
+rclone lsf hub:HubBackup/encrypted -R --files-only   # thô: đúng thứ Google thấy
 ```
 
 Lệnh thứ hai phải ra tên vô nghĩa, ví dụ:

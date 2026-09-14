@@ -84,6 +84,8 @@ async function fillRequiredFields() {
   await userEvent.click(await screen.findByText('D:\\Du lieu'))
   // Đích tách hai phần: chọn remote từ danh sách, gõ đường dẫn bên trong.
   await userEvent.selectOptions(await screen.findByLabelText('Remote'), 'hub')
+  // Ô đích có sẵn tiền tố mặc định — xoá trước khi gõ, vì type() nối thêm.
+  await userEvent.clear(screen.getByLabelText('Đích trên cloud'))
   await userEvent.type(screen.getByLabelText('Đích trên cloud'), 'backup/tai-lieu')
 }
 
@@ -112,6 +114,7 @@ describe('JobDialog', () => {
     await userEvent.type(screen.getByLabelText('Tên'), 'anh-cu')
     await userEvent.type(screen.getByLabelText('Thư mục nguồn'), 'E:\\Anh\\2026')
     await userEvent.selectOptions(await screen.findByLabelText('Remote'), 'hub')
+    await userEvent.clear(screen.getByLabelText('Đích trên cloud'))
     await userEvent.type(screen.getByLabelText('Đích trên cloud'), 'backup/anh-cu')
     await userEvent.click(screen.getByRole('button', { name: 'Tạo công việc' }))
 
@@ -147,6 +150,28 @@ describe('JobDialog', () => {
     await waitFor(() => expect(savedBody(fetchMock)).toBeTruthy())
 
     expect(savedBody(fetchMock)).toMatchObject({ destination: 'hub:backup/tai-lieu' })
+  })
+
+  /**
+   * Mọi job gom dưới một thư mục mẹ trên Drive thay vì rải ra gốc, lẫn với
+   * thư mục cá nhân của người dùng.
+   */
+  it('điền sẵn thư mục mẹ HubBackup/ cho job mới', async () => {
+    const fetchMock = stubApi()
+
+    renderWithProviders(<JobDialog open onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByLabelText('Đích trên cloud')).toHaveValue('HubBackup/')
+
+    // Gõ tiếp phần tên là đủ, không phải tự gõ lại tiền tố.
+    await userEvent.type(screen.getByLabelText('Tên'), 'anh')
+    await userEvent.click(await screen.findByText('D:\\Du lieu'))
+    await userEvent.selectOptions(screen.getByLabelText('Remote'), 'hub')
+    await userEvent.type(screen.getByLabelText('Đích trên cloud'), 'anh')
+    await userEvent.click(screen.getByRole('button', { name: 'Tạo công việc' }))
+
+    await waitFor(() => expect(savedBody(fetchMock)).toBeTruthy())
+    expect(savedBody(fetchMock)).toMatchObject({ destination: 'hub:HubBackup/anh' })
   })
 
   it('liệt kê remote thật để chọn', async () => {
